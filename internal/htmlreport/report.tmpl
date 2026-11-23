@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-SCRIPT_DIGEST'; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer"><title>{{.Title}} · KubeDoctor</title><style>{{fixedCSS}}</style></head>
+<body><a class="skip" href="#main">Skip to report</a>
+<header><p>KubeDoctor</p><h1>{{.Title}}</h1>
+{{with .View}}<p class="scope">{{.Scope.Kind}} {{.Scope.Namespace}} · {{.Scope.Context}} · {{stamp .EvaluatedAt}}</p>{{end}}
+{{with .Diff}}<p class="scope">{{stamp .Before.EvaluatedAt}} → {{stamp .After.EvaluatedAt}}</p>{{end}}</header>
+<div class="nav"><nav class="wrap" aria-label="Report sections"><a href="#summary">Summary</a>
+{{if .View}}<a href="#incidents">Investigations</a><a href="#findings">Findings</a><a href="#relationships">Relationships</a><a href="#timeline">Timeline</a><a href="#history">Resource history</a>{{else}}<a href="#resource-changes">Resources</a><a href="#workload-changes">Workloads</a>{{end}}<a href="#coverage">Coverage</a></nav></div>
+<main id="main" class="wrap">
+{{with .View}}
+<section id="summary"><h2>Summary</h2>
+<dl class="summary"><div><dt>Investigations</dt><dd>{{len .Incidents}}</dd></div><div><dt>Critical findings</dt><dd class="critical">{{$.Counts.Critical}}</dd></div><div><dt>Warnings</dt><dd class="warning">{{$.Counts.Warning}}</dd></div><div><dt>Informational</dt><dd>{{$.Counts.Info}}</dd></div></dl>
+<p><strong>Required collection {{if .Report.Complete}}complete{{else}}incomplete{{end}}.</strong> <a href="#coverage">Inspect {{len .Report.Sources}} source results</a>.</p>
+<p class="meta">Collection {{stamp .CaptureStartedAt}} to {{stamp .CaptureCompletedAt}}. Evaluated {{stamp .EvaluatedAt}}. Analysis mode {{.AnalysisMode}}, rules {{.RuleVersion}}, capture rules {{.CaptureRuleVersion}}.</p>
+{{if or .Limitations .Truncated}}<div class="notice"><strong>Limitations</strong>{{if .Truncated}}<p>The investigation reached a processing limit.</p>{{end}}{{range .Limitations}}<p>{{.}}</p>{{end}}</div>{{end}}</section>
+<section id="incidents"><h2>Investigations</h2>
+{{range .Incidents}}<article class="item"><div class="kicker"><strong>{{.Severity}}</strong> · {{.ID}}</div><h3>{{label .Anchor}}</h3>
+{{range .Members}}<span>{{label .}} · </span>{{end}}
+{{if .Observations}}<h4>Observed facts</h4>{{template "explanations" .Observations}}{{end}}
+{{if .Corroboration}}<h4>Corroborating evidence</h4>{{template "explanations" .Corroboration}}{{end}}
+{{if .Candidates}}<h4>Candidate explanations</h4>{{template "explanations" .Candidates}}{{end}}
+{{if .Alternatives}}<details><summary>Alternative explanations</summary>{{template "explanations" .Alternatives}}</details>{{end}}
+{{if .MissingEvidence}}<details><summary>Missing evidence</summary><ul>{{range .MissingEvidence}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+{{if .NextSteps}}<details><summary>Next steps</summary><ul>{{range .NextSteps}}<li>{{.}}</li>{{end}}</ul></details>{{end}}
+{{if .RecoveryChecks}}<details><summary>Recovery checks</summary>{{template "explanations" .RecoveryChecks}}</details>{{end}}
+<p class="meta">{{range .FindingIndexes}}<a href="#finding-{{.}}">Finding {{number .}}</a> {{end}}{{range .RelationshipIndexes}}<a href="#edge-{{.}}">Relationship {{number .}}</a> {{end}}{{range .TimelineIndexes}}<a href="#time-{{.}}">Time {{number .}}</a> {{end}}</p></article>
+{{else}}<p>No investigation was formed from the available findings.</p>{{end}}</section>
+<section id="findings"><h2>Findings</h2>
+{{if $.Findings}}<form id="filters" hidden aria-label="Filter findings"><label>Severity<select name="severity"><option value="">All severities</option></select></label><label>Namespace<select name="namespace"><option value="">All namespaces</option></select></label><label>Workload<select name="workload"><option value="">All workloads</option></select></label><label>Resource<select name="resource"><option value="">All resources</option></select></label><button type="reset">Clear filters</button><output id="filter-count" aria-live="polite"></output></form>{{end}}
+{{range $.Findings}}<article class="item" data-finding data-severity="{{.Severity}}" data-namespace="{{.Resource.Namespace}}" data-workload="{{.Workload}}" data-resource="{{label .Resource}}">
+<div class="kicker"><strong class="{{.Severity}}">{{.Severity}}</strong> · {{.RuleID}} · {{.Confidence}}</div><h3>{{.Symptom}}</h3><p>{{label .Resource}}</p>
+<details id="finding-{{.Index}}"><summary>Evidence for finding {{number .Index}}</summary>{{template "evidence" .Evidence}}
+{{with .ProbableCause}}<p>Candidate explanation · {{.}}</p>{{end}}{{if .NextSteps}}<ul>{{range .NextSteps}}<li>{{.}}</li>{{end}}</ul>{{end}}</details></article>{{else}}<p>No findings in the captured evidence. See collection coverage for gaps.</p>{{end}}</section>
+<section id="relationships"><h2>Relationships</h2>{{range $i,$e:=.Relationships}}<details class="item" id="edge-{{$i}}"><summary>{{label .From}} → {{label .To}}</summary><p>{{.Kind}} · {{.Source}} · {{.Basis}} · target {{if .TargetObserved}}observed{{else}}unverified{{end}}</p>{{template "evidence" .Evidence}}</details>{{else}}<p>No relationships were established.</p>{{end}}</section>
+<section id="timeline"><h2>Timeline</h2><ol class="times">{{range $i,$e:=.Timeline}}<li id="time-{{$i}}"><time>{{stamp .Time}}</time> · {{.TimeKind}} · {{.Source}}{{if .Uncertain}} · uncertain{{end}}<br>{{with .Resource}}{{label .}} · {{end}}{{.Summary}}{{if .Evidence}}<details><summary>Time evidence</summary>{{template "evidence" .Evidence}}</details>{{end}}</li>{{else}}<li>No timed observations were available.</li>{{end}}</ol></section>
+<section id="history"><h2>Resource history</h2>{{with .History}}<p><strong>{{.Status}}</strong> {{.Reason}} · {{stamp .WindowStart}} to {{stamp .WindowEnd}} · step {{.StepSeconds}} s · expected scrape interval {{.ScrapeSeconds}} s</p><p class="meta">Provider request interval {{stamp .StartedAt}} to {{stamp .FinishedAt}}.</p>{{else}}<p>Historical metrics were not configured for this capture.</p>{{end}}
+{{range $.History}}<article class="item"><h3>{{.Name}}</h3><p>{{.Identity}} · {{.Metric.Status}} {{.Metric.Reason}}</p><p>{{.Metric.DistinctScrapes}} distinct scrapes of {{.Metric.ExpectedScrapes}} expected · {{.Metric.Unit}}</p>
+{{if .Bins}}<svg class="chart" viewBox="0 0 400 80" preserveAspectRatio="none" role="img" aria-label="{{.Name}} time series, zero to {{.Maximum}} {{.Metric.Unit}} across the requested time window">{{range .Bins}}<line x1="{{.X}}" x2="{{.X}}" y1="{{.YLow}}" y2="{{.YHigh}}"/><circle cx="{{.X}}" cy="{{.YHigh}}" r="1.2"/>{{end}}</svg>{{end}}
+<p>Median {{value .Metric.P50}} · p95 {{value .Metric.P95}} · peak {{value .Metric.Peak}} {{.Metric.Unit}}</p><p>Request candidate {{value .Metric.Advice.Request}} · {{.Metric.Advice.Reason}}</p>
+{{with .Link}}<a href="{{.}}" referrerpolicy="no-referrer" rel="noopener noreferrer">Open configured Grafana dashboard</a>{{end}}</article>{{end}}</section>
+<section id="coverage"><h2>Collection coverage</h2><div class="scroll"><table><thead><tr><th>Source</th><th>Resource</th><th>Requirement</th><th>Coverage</th><th>Detail</th></tr></thead><tbody>{{range .Report.Sources}}<tr><td>{{.Source}}</td><td>{{.Resource}}</td><td>{{if .Required}}Required{{else}}Optional{{end}}</td><td>{{.Status}}</td><td>{{.Detail}}</td></tr>{{else}}<tr><td colspan="5">No source results.</td></tr>{{end}}</tbody></table></div>
+<details><summary>Source observation intervals ({{len .SourceTimings}})</summary><ul>{{range .SourceTimings}}<li>{{.Source}} {{.Resource}} · {{stamp .StartedAt}} to {{stamp .FinishedAt}}</li>{{else}}<li>No source intervals recorded.</li>{{end}}</ul></details>
+<details><summary>Diagnostic checks ({{len .Report.Checks}})</summary><ul>{{range .Report.Checks}}<li>{{.ID}} · {{.Status}} {{.Detail}}</li>{{end}}</ul></details></section>
+{{end}}
+{{with .Diff}}
+<section id="summary"><h2>Comparison summary</h2><dl class="summary"><div><dt>Resource results</dt><dd>{{len .ResourceChanges}}</dd></div><div><dt>Workload results</dt><dd>{{len .WorkloadChanges}}</dd></div><div><dt>Coverage changes</dt><dd>{{len .CoverageChanges}}</dd></div></dl>
+<p><strong>{{if .Compatible}}Compatible{{else}}Incompatible{{end}} captures · {{if .Complete}}complete{{else}}incomplete{{end}} comparison</strong></p><p>Before · {{.Before.Scope.Kind}} {{.Before.Scope.Namespace}} · {{.Before.Scope.Context}} · rules {{.Before.RuleVersion}}<br>After · {{.After.Scope.Kind}} {{.After.Scope.Namespace}} · {{.After.Scope.Context}} · rules {{.After.RuleVersion}}</p>
+{{if .Limitations}}<div class="notice"><strong>Limitations</strong>{{range .Limitations}}<p>{{.}}</p>{{end}}</div>{{end}}</section>
+<section id="resource-changes"><h2>Resource changes</h2>{{template "changes" .ResourceChanges}}</section>
+<section id="workload-changes"><h2>Workload changes</h2>{{template "changes" .WorkloadChanges}}</section>
+<section id="coverage"><h2>Coverage changes</h2>{{if .CoverageChanges}}<div class="scroll"><table><thead><tr><th>Source</th><th>Resource</th><th>Before</th><th>After</th></tr></thead><tbody>{{range .CoverageChanges}}<tr><td>{{.Source}}</td><td>{{.Resource}}</td><td>{{.Before}}</td><td>{{.After}}</td></tr>{{end}}</tbody></table></div>{{else}}<p>No coverage changes recorded.</p>{{end}}</section>{{end}}
+</main><script>{{fixedJS}}</script></body></html>
+{{define "evidence"}}{{if .}}<dl>{{range .}}<dt><code>{{.Field}}</code></dt><dd>{{.Value}}</dd>{{end}}</dl>{{else}}<p>No additional structured evidence.</p>{{end}}{{end}}
+{{define "explanations"}}<ul>{{range .}}<li>{{.Summary}} · {{.Confidence}} {{range .FindingIndexes}}<a href="#finding-{{.}}">Finding {{number .}}</a> {{end}}</li>{{end}}</ul>{{end}}
+{{define "changes"}}{{range .}}<article class="item"><div class="kicker"><strong>{{.Classification}}</strong> · {{.RuleID}}</div><h3>{{label .Subject}}</h3><p>{{.Condition}} · {{.Reason}}</p>{{range .Differences}}<p>{{.}}</p>{{end}}<details><summary>Compare evidence</summary><h4>Before</h4>{{template "occurrences" .Before}}<h4>After</h4>{{template "occurrences" .After}}</details></article>{{else}}<p>No finding occurrences in this view.</p>{{end}}{{end}}
+{{define "occurrences"}}{{range .}}<p>{{label .Finding.Resource}} · {{.Finding.Severity}} · {{.Finding.Confidence}} · {{.Finding.Symptom}}</p>{{template "evidence" .Finding.Evidence}}{{else}}<p>No matching finding.</p>{{end}}{{end}}

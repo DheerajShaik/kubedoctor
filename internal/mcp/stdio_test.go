@@ -28,6 +28,8 @@ import (
 func TestStdioBinaryInterop(t *testing.T) {
 	binary := buildTestBinary(t)
 	var requests atomic.Int32
+	var repaired atomic.Bool
+	var blocking atomic.Pointer[blockedFixtureRequest]
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if r.Method != http.MethodGet || r.Header.Get("Upgrade") != "" {
@@ -35,8 +37,15 @@ func TestStdioBinaryInterop(t *testing.T) {
 			http.Error(w, "unsupported fixture operation", http.StatusMethodNotAllowed)
 			return
 		}
+		if wait := blocking.Load(); wait != nil && r.URL.Path == "/api/v1/namespaces/payments/pods" &&
+			blocking.CompareAndSwap(wait, nil) {
+			close(wait.started)
+			<-r.Context().Done()
+			close(wait.canceled)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		response, code := fixtureResponse(t, r)
+		response, code := fixtureResponse(t, r, repaired.Load())
 		w.WriteHeader(code)
 		if err := json.NewEncoder(w).Encode(response); err != nil {
 			t.Errorf("write fixture response: %v", err)
@@ -81,7 +90,7 @@ func TestStdioBinaryInterop(t *testing.T) {
 			}
 			atStart := requests.Load()
 			list, err := session.ListTools(ctx, nil)
-			if err != nil || len(list.Tools) != 3 {
+			if err != nil || len(list.Tools) != len(toolArguments) {
 				t.Fatalf("list tools = %v, %v", list, err)
 			}
 			checks := callTool(t, session, checksTool, `{}`)
@@ -117,6 +126,9 @@ func TestStdioBinaryInterop(t *testing.T) {
 			if requests.Load() == atStart {
 				t.Fatal("the authorized subprocess call did not reach the fixture")
 			}
+			if version == "2026-07-28" {
+				assertStdioCancellation(t, session, &blocking)
+			}
 			if err := session.Close(); err != nil {
 				t.Fatalf("stdio shutdown: %v (%s)", err, stderr.String())
 			}
@@ -140,6 +152,9 @@ func TestStdioBinaryInterop(t *testing.T) {
 		}
 	})
 
+	t.Run("authorized incident artifacts", func(t *testing.T) {
+		checkStdioArtifacts(t, binary, kubeconfig, &requests, &repaired)
+	})
 	after, err := os.ReadFile(kubeconfig)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("subprocess changed its kubeconfig")
@@ -167,19 +182,22 @@ func buildTestBinary(t *testing.T) string {
 	return binary
 }
 
-func fixtureResponse(t *testing.T, request *http.Request) (map[string]any, int) {
+func fixtureResponse(t *testing.T, request *http.Request, repaired bool) (map[string]any, int) {
 	t.Helper()
 	path := request.URL.Path
 	switch path {
-	case "/api/v1/namespaces/payments":
-		return map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": "payments"}}, http.StatusOK
+	case "/api/v1/namespaces/payments", "/api/v1/namespaces/kube-system":
+		namespace := filepath.Base(path)
+		return map[string]any{"apiVersion": "v1", "kind": "Namespace",
+			"metadata": map[string]any{"name": namespace, "uid": namespace + "-uid"}}, http.StatusOK
 	case "/apis/discovery.k8s.io/v1":
 		return map[string]any{
 			"apiVersion": "v1", "kind": "APIResourceList", "groupVersion": "discovery.k8s.io/v1",
 			"resources": []map[string]any{{"name": "endpointslices", "namespaced": true, "kind": "EndpointSlice"}},
 		}, http.StatusOK
 	case "/apis/metrics.k8s.io/v1beta1", "/api/v1/namespaces/kube-system/services/kube-dns",
-		"/api/v1/namespaces/kube-system/configmaps/coredns", "/api/v1/namespaces/kube-system/configmaps/kube-dns":
+		"/api/v1/namespaces/kube-system/configmaps/coredns", "/api/v1/namespaces/kube-system/configmaps/kube-dns",
+		"/apis/apps/v1/namespaces/kube-system/daemonsets/node-local-dns":
 		return map[string]any{"apiVersion": "v1", "kind": "Status", "status": "Failure", "reason": "NotFound", "code": 404}, http.StatusNotFound
 	case "/api/v1/namespaces/kube-system/pods":
 		if request.URL.Query().Get("labelSelector") != "k8s-app=kube-dns" {
@@ -197,6 +215,8 @@ func fixtureResponse(t *testing.T, request *http.Request) (map[string]any, int) 
 		"services": "Service", "replicasets": "ReplicaSet", "deployments": "Deployment", "daemonsets": "DaemonSet",
 		"endpointslices": "EndpointSlice", "ingresses": "Ingress", "networkpolicies": "NetworkPolicy",
 		"poddisruptionbudgets": "PodDisruptionBudget",
+		"statefulsets":         "StatefulSet", "jobs": "Job", "cronjobs": "CronJob", "resourcequotas": "ResourceQuota",
+		"limitranges": "LimitRange", "horizontalpodautoscalers": "HorizontalPodAutoscaler",
 	}
 	kind, ok := kinds[resource]
 	if !ok {
@@ -205,7 +225,15 @@ func fixtureResponse(t *testing.T, request *http.Request) (map[string]any, int) 
 	}
 	version := strings.TrimPrefix(strings.TrimPrefix(group, "/api/"), "/apis/")
 	result := listFixture(version, kind)
-	if resource == "pods" {
+	if resource == "pods" && repaired {
+		result["items"] = []json.RawMessage{json.RawMessage(`{
+			"metadata":{"name":"checkout","namespace":"payments","uid":"checkout-uid"},
+			"spec":{"containers":[{"name":"app","image":"example.invalid/app"}]},
+			"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}],
+				"containerStatuses":[{"name":"app","ready":true,"state":{"running":{}}}]}
+		}`)}
+	}
+	if resource == "pods" && !repaired {
 		result["items"] = []json.RawMessage{json.RawMessage(`{
 			"metadata":{"name":"checkout","namespace":"payments","uid":"checkout-uid"},
 			"spec":{"containers":[{"name":"app","image":"example.invalid/app"}]},
