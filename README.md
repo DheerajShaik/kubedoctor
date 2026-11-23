@@ -10,9 +10,22 @@ kubectl doctor checks
 kubectl doctor version
 ```
 
+## Investigate an incident
+
+```sh
+kubectl doctor capture namespace payments --bundle before.json
+kubectl doctor inspect before.json
+kubectl doctor investigate before.json -o html --file incident.html
+kubectl doctor replay before.json -o json
+kubectl doctor capture namespace payments --bundle after.json
+kubectl doctor compare before.json after.json --fail-on warning
+```
+
+Capture uses the selected Kubernetes context. Replay, comparison and report generation work from local bundles. An investigation connects findings to resources and supporting evidence. Collection gaps remain visible when a repair cannot be verified. See the [bundle retention and integrity contract](docs/releases/v0.2.0/BUNDLE.md). Follow the [offline example and upgrade instructions](docs/releases/v0.2.0/MIGRATION.md), [historical provider configuration](docs/releases/v0.2.0/HISTORY.md), and [diagnostic scope](docs/releases/v0.2.0/DIAGNOSTICS.md).
+
 ## Install
 
-Download the archive and `SHA256SUMS` for your platform from the private [releases](https://github.com/DheerajShaik/kubedoctor/releases), check the archive's SHA-256, then put `kubectl-doctor` (or `kubectl-doctor.exe` on Windows) on your PATH. The executable also works directly. Run `kubectl plugin list` to check discovery.
+Download the archive and `SHA256SUMS` for your platform from the [releases](https://github.com/DheerajShaik/kubedoctor/releases), check the archive's SHA-256, then put `kubectl-doctor` (or `kubectl-doctor.exe` on Windows) on your PATH. The executable also works directly. Run `kubectl plugin list` to check discovery.
 
 Build from the checkout with the Go version in `go.mod`. On macOS or Linux:
 
@@ -33,7 +46,7 @@ A scan exits with **0** when required collection is complete and findings stay b
 
 JSON schema version `1` includes scope, collection time, required completeness, findings, checks and source status. Optional source losses and inconclusive checks remain visible even when exit status is 0. Terminal output groups correlated findings by resource or controller. Use `kubectl doctor checks` for the current rule list.
 
-KubeDoctor supports Kubernetes 1.35 and 1.36 at the depth described in [requirements](docs/REQUIREMENTS.md). Secret-key diagnosis relies on pertinent evidence from events. Application logs and Secret bodies are excluded. Metrics observations use a current sample. Static policy and DNS component observations cannot establish packet delivery or workload name resolution. Scans can return partial reports when request or inventory limits are reached. See the [access examples](rbac/README.md) and [architecture limits](docs/ARCHITECTURE.md).
+KubeDoctor supports Kubernetes 1.35 and 1.36 at the depth described in [requirements](docs/REQUIREMENTS.md). Secret-key diagnosis relies on pertinent evidence from events. Application logs and Secret bodies are excluded. The Metrics API supplies current samples. An explicitly configured Prometheus source supplies historical observations for authorized targets. Static policy and DNS component observations cannot establish packet delivery or workload name resolution. Scans can return partial reports when request or inventory limits are reached. See the [access examples](rbac/README.md) and [architecture limits](docs/ARCHITECTURE.md).
 
 ## MCP
 

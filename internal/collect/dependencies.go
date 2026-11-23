@@ -40,7 +40,9 @@ func (c *Collector) collectNodes(ctx context.Context, cluster, podsComplete bool
 			results = append(results, collectionError(model.SourceNodes, true, err))
 			break
 		}
-		node, err := c.core.Nodes().Get(requestContext(ctx), object, metav1.GetOptions{})
+		node, err := timedRead(ctx, model.SourceNodes, object, func() (*core.Node, error) {
+			return c.core.Nodes().Get(requestContext(ctx), object, metav1.GetOptions{})
+		})
 		result := namedObservation(model.SourceNodes, true, object, err)
 		if err == nil {
 			if node.Name == object {
@@ -90,7 +92,9 @@ func (c *Collector) collectStorageClasses(ctx context.Context, cluster, claimsCo
 			results = append(results, collectionError(model.SourceStorageClasses, true, err))
 			break
 		}
-		class, err := c.storage.StorageClasses().Get(requestContext(ctx), object, metav1.GetOptions{})
+		class, err := timedRead(ctx, model.SourceStorageClasses, object, func() (*storage.StorageClass, error) {
+			return c.storage.StorageClasses().Get(requestContext(ctx), object, metav1.GetOptions{})
+		})
 		result := namedObservation(model.SourceStorageClasses, true, object, err)
 		switch {
 		case storageClassNotFound(object, err):
@@ -147,14 +151,16 @@ func namedObservation(source model.Source, required bool, object string, err err
 func (c *Collector) collectDNSPods(ctx context.Context, s *model.Snapshot) []model.SourceResult {
 	var result model.SourceResult
 	s.DNSPods, result = readPages(ctx, model.SourceDNSPods, false, metav1.ListOptions{LabelSelector: dnsPodSelector},
-		c.core.Pods(dnsNamespace).List, func(l *core.PodList) []core.Pod { return l.Items }, include(projectPod))
+		c.core.Pods(dnsNamespace).List, func(l *core.PodList) []core.Pod { return l.Items }, include(projectDNSPod))
 	return []model.SourceResult{result}
 }
 
 func (c *Collector) collectDNSConfig(ctx context.Context, s *model.Snapshot) []model.SourceResult {
 	var results []model.SourceResult
 	for _, object := range []string{"coredns", "kube-dns"} {
-		configMap, err := c.core.ConfigMaps(dnsNamespace).Get(requestContext(ctx), object, metav1.GetOptions{})
+		configMap, err := timedRead(ctx, model.SourceDNSConfig, object, func() (*core.ConfigMap, error) {
+			return c.core.ConfigMaps(dnsNamespace).Get(requestContext(ctx), object, metav1.GetOptions{})
+		})
 		result := namedObservation(model.SourceDNSConfig, false, object, err)
 		switch {
 		case apierrors.IsNotFound(err):
@@ -164,7 +170,7 @@ func (c *Collector) collectDNSConfig(ctx context.Context, s *model.Snapshot) []m
 		case err == nil && configMap.Name == object && configMap.Namespace == dnsNamespace:
 			_, hasCorefile := configMap.Data["Corefile"]
 			s.DNSConfig = append(s.DNSConfig, model.DNSConfig{
-				Name: object, Namespace: dnsNamespace, HasCorefile: hasCorefile,
+				Name: object, Namespace: dnsNamespace, UID: token(string(configMap.UID)), HasCorefile: hasCorefile,
 			})
 		case err == nil:
 			result = namedObservation(model.SourceDNSConfig, false, object, errUnexpectedNamedObject)
@@ -183,7 +189,9 @@ func (c *Collector) collectDNSConfig(ctx context.Context, s *model.Snapshot) []m
 }
 
 func (c *Collector) collectDNSServices(ctx context.Context, slicesAbsent bool, s *model.Snapshot) []model.SourceResult {
-	service, err := c.core.Services(dnsNamespace).Get(requestContext(ctx), dnsService, metav1.GetOptions{})
+	service, err := timedRead(ctx, model.SourceDNSServices, dnsService, func() (*core.Service, error) {
+		return c.core.Services(dnsNamespace).Get(requestContext(ctx), dnsService, metav1.GetOptions{})
+	})
 	if err != nil || service.Name != dnsService || service.Namespace != dnsNamespace {
 		if err == nil {
 			err = errUnexpectedNamedObject
@@ -205,7 +213,9 @@ func (c *Collector) collectDNSServices(ctx context.Context, slicesAbsent bool, s
 			observed(model.SourceDNSLegacyEndpoints, false, model.NotApplicable, "stable EndpointSlices were selected")}
 	}
 
-	endpoint, err := c.core.Endpoints(dnsNamespace).Get(requestContext(ctx), dnsService, metav1.GetOptions{})
+	endpoint, err := timedRead(ctx, model.SourceDNSLegacyEndpoints, dnsService, func() (*core.Endpoints, error) {
+		return c.core.Endpoints(dnsNamespace).Get(requestContext(ctx), dnsService, metav1.GetOptions{})
+	})
 	fallback := namedObservation(model.SourceDNSLegacyEndpoints, false, dnsService, err)
 	if err == nil {
 		if endpoint.Name == dnsService && endpoint.Namespace == dnsNamespace {

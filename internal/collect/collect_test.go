@@ -107,6 +107,8 @@ func defaultWireResponse(w http.ResponseWriter, req *http.Request) {
 		"deployments": "DeploymentList", "daemonsets": "DaemonSetList", "replicasets": "ReplicaSetList",
 		"endpointslices": "EndpointSliceList", "ingresses": "IngressList", "networkpolicies": "NetworkPolicyList",
 		"poddisruptionbudgets": "PodDisruptionBudgetList", "storageclasses": "StorageClassList",
+		"statefulsets": "StatefulSetList", "jobs": "JobList", "cronjobs": "CronJobList",
+		"horizontalpodautoscalers": "HorizontalPodAutoscalerList", "resourcequotas": "ResourceQuotaList", "limitranges": "LimitRangeList",
 	}
 	segments := strings.Split(strings.TrimPrefix(p, "/"), "/")
 	kind := kinds[segments[len(segments)-1]]

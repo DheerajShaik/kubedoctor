@@ -1,5 +1,7 @@
 # Validation
 
+See the [v0.2.0 verification record](releases/v0.2.0/VALIDATION.md), [acceptance matrix](releases/v0.2.0/ACCEPTANCE.md), and [lab](releases/v0.2.0/LAB.md) for investigation validation. The initial-release evidence is retained below.
+
 Run from the repository root with the version in go.mod.
 
 ```sh
@@ -14,7 +16,7 @@ Record exact commands, revision, results, and limitations below as checks run.
 | Check | Observed result |
 | --- | --- |
 | Frozen charter | Attachment and `PROJECT_CHARTER.md` matched byte for byte |
-| Repository | Verified private, correct owner and main branch via GitHub connector |
+| Repository | Owner and main branch verified. The v0.2 baseline check confirmed public visibility. |
 | Runtime | Linux amd64, Go 1.27.4 verified by official SHA-256, rootless Docker server 29.9.2 reachable |
 | Hosted release gates | Tracked on [PR #1](https://github.com/DheerajShaik/kubedoctor/pull/1) for its current head |
 

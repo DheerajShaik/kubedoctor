@@ -49,7 +49,7 @@ Each rule needs evidence of a finding, a healthy or exempt case, and a visibilit
 
 KubeDoctor reads observations made available to the selected Kubernetes identity. A complete scan means its required collection coverage is complete. Optional or permission-limited checks retain their own status. Exact coverage and required API permissions are documented with the CLI behavior and RBAC. A report is a time-bounded diagnostic snapshot. Use next steps and confidence to interpret operational impact.
 
-HTML reporting, storage of historical metrics, historical sizing policy, Grafana integration, AI explanations, deeper network tracing, HTTP-hosted MCP, and additional resource types are later work. See the [roadmap](ROADMAP.md).
+The [v0.2 release charter](releases/v0.2.0/RELEASE_CHARTER.md) adds offline reporting, historical resource evidence and sizing, Grafana navigation, relationships, comparison, expanded MCP and deeper workload diagnostics. Its [acceptance matrix](releases/v0.2.0/ACCEPTANCE.md) supplements the v0.1 contracts.
 
 ## Rule contracts and fixtures
 

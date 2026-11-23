@@ -146,10 +146,21 @@ func projectNetworkPolicy(value networking.NetworkPolicy) networking.NetworkPoli
 		}
 	}
 	for _, rule := range value.Spec.Ingress {
-		out.Spec.Ingress = append(out.Spec.Ingress, networking.NetworkPolicyIngressRule{
+		projection := networking.NetworkPolicyIngressRule{
 			From:  make([]networking.NetworkPolicyPeer, len(rule.From)),
 			Ports: make([]networking.NetworkPolicyPort, len(rule.Ports)),
-		})
+		}
+		for i, port := range rule.Ports {
+			if port.Port != nil && port.Port.Type == intstr.String && len(port.Port.StrVal) > 0 && len(port.Port.StrVal) <= 15 && token(port.Port.StrVal) != "" {
+				projection.Ports[i].Port = new(intstr.FromString(port.Port.StrVal))
+				if port.Protocol != nil {
+					if protocol := projectProtocol(*port.Protocol); protocol != "" {
+						projection.Ports[i].Protocol = new(protocol)
+					}
+				}
+			}
+		}
+		out.Spec.Ingress = append(out.Spec.Ingress, projection)
 	}
 	for _, rule := range value.Spec.Egress {
 		out.Spec.Egress = append(out.Spec.Egress, networking.NetworkPolicyEgressRule{

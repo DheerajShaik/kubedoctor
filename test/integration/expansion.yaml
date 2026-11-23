@@ -1,0 +1,260 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: doctor-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stateful-image
+  namespace: doctor-rules
+spec:
+  clusterIP: None
+  selector:
+    app: stateful-image
+  ports:
+    - port: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: stateful-image
+  namespace: doctor-rules
+spec:
+  serviceName: stateful-image
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stateful-image
+  template:
+    metadata:
+      labels:
+        app: stateful-image
+    spec:
+      containers:
+        - name: app
+          image: localhost:1/kubedoctor-fixture-image:v1
+          imagePullPolicy: Always
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stateful-image
+  namespace: doctor-rules
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: stateful-image
+  minReplicas: 1
+  maxReplicas: 2
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fixture-failed
+  namespace: doctor-rules
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fail
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+          args: ['-kubedoctor-fixture-invalid-flag']
+          resources:
+            requests: {cpu: 20m, memory: 30Mi}
+            limits: {cpu: 100m, memory: 100Mi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fixture-suspended
+  namespace: doctor-rules
+spec:
+  schedule: '0 0 * * *'
+  suspend: true
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: version
+              image: __COREDNS_IMAGE__
+              imagePullPolicy: Never
+              args: ['-version']
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: missing-storage
+  namespace: doctor-rules
+spec:
+  storageClassName: missing-fixture-storage-class
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: probe-config
+  namespace: doctor-rules
+data:
+  Corefile: |
+    .:1053 {
+      errors
+      health :8080
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe-trip
+  namespace: doctor-rules
+spec:
+  replicas: 1
+  progressDeadlineSeconds: 20
+  selector:
+    matchLabels:
+      app: probe-trip
+  template:
+    metadata:
+      labels:
+        app: probe-trip
+    spec:
+      containers:
+        - name: app
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+          args: ['-conf', '/etc/coredns/Corefile']
+          ports:
+            - name: health
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /invalid-fixture-health
+              port: health
+          resources:
+            requests: {cpu: 20m, memory: 30Mi}
+            limits: {cpu: 100m, memory: 100Mi}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coredns
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: probe-config
+            items:
+              - key: Corefile
+                path: Corefile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: probe-trip
+  namespace: doctor-rules
+spec:
+  selector:
+    app: probe-trip
+  ports:
+    - name: health
+      port: 80
+      targetPort: health
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: probe-name-mismatch
+  namespace: doctor-rules
+spec:
+  podSelector:
+    matchLabels:
+      app: probe-trip
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - port: nonexistent
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: doctor-quota
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: pod-quota
+  namespace: doctor-quota
+spec:
+  hard:
+    pods: "0"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-blocked
+  namespace: doctor-quota
+spec:
+  selector:
+    matchLabels:
+      app: quota-blocked
+  template:
+    metadata:
+      labels:
+        app: quota-blocked
+    spec:
+      containers:
+        - name: app
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: doctor-limits
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: minimum-cpu
+  namespace: doctor-limits
+spec:
+  limits:
+    - type: Container
+      min: {cpu: 100m}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: limits-blocked
+  namespace: doctor-limits
+spec:
+  selector:
+    matchLabels:
+      app: limits-blocked
+  template:
+    metadata:
+      labels:
+        app: limits-blocked
+    spec:
+      containers:
+        - name: app
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+          resources:
+            requests: {cpu: 20m, memory: 30Mi}
+            limits: {cpu: 100m, memory: 100Mi}

@@ -48,6 +48,73 @@ jobs:
       - run: go vet ./...
       - run: go test -count=1 ./...
       - run: go test -race -count=1 ./...
+      - name: Regenerate the sanitized examples
+        run: ./scripts/check-examples.sh
+
+  bundle-fuzz:
+    name: Bounded bundle parser fuzzing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Exercise the parser fuzz target
+        shell: bash
+        run: |
+          go test ./internal/bundle -list '^FuzzDecode$' | grep -Fx FuzzDecode
+          go test ./internal/bundle -run='^$' -fuzz='^FuzzDecode$' -fuzztime=20s -parallel=2
+
+  history:
+    name: Historical metrics on real Prometheus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - run: ./scripts/history-integration.sh
+
+  offline-browser:
+    name: Offline report browser and printing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: Install pinned browser test dependencies
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kubedoctor-browser-venv"
+          "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" -m pip install --timeout 15 --retries 2 \
+            playwright==1.62.0 pypdf==7.1.1
+          google-chrome --version
+      - name: Generate the browser fixture
+        timeout-minutes: 6
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/browser"
+          KUBEDOCTOR_HTML_TEST_OUTPUT="$RUNNER_TEMP/browser" go test -count=1 \
+            -run '^TestRenderedReportAndBrowserFixture$' ./internal/htmlreport
+      - name: Test generated reports in the runner browser
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          chromium=$(command -v google-chrome)
+          "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" test/browser/offline.py "$RUNNER_TEMP/browser/browser.html" \
+            --comparison docs/releases/v0.2.0/examples/comparison.html --chromium "$chromium" \
+            --output "$RUNNER_TEMP/browser" --example-dir docs/releases/v0.2.0/examples
 
   vulnerabilities:
     name: Go vulnerability check
@@ -98,15 +165,25 @@ jobs:
           test -s "$binary"
 
   integration:
-    name: Kubernetes ${{ matrix.kubernetes }} integration
+    name: ${{ matrix.job }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        kubernetes: ['1.35.8', '1.36.4']
+        include:
+          - kubernetes: '1.35.8'
+            variant: default
+            job: Kubernetes 1.35.8 integration
+          - kubernetes: '1.36.4'
+            variant: nodelocal
+            job: Kubernetes 1.36.4 integration
+          - kubernetes: '1.36.4'
+            variant: cilium
+            job: Kubernetes 1.36.4 Cilium integration
     env:
       KUBERNETES_VERSION: ${{ matrix.kubernetes }}
+      LAB_VARIANT: ${{ matrix.variant }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -114,10 +191,25 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.27.4'
-      - name: Install pinned kind and kubectl
+      - name: Install pinned lab tools
         shell: bash
         run: |
-          ./scripts/integration-tools.sh "$KUBERNETES_VERSION" "$RUNNER_TEMP/kubedoctor-tools"
+          tool_variant=default
+          if [[ "$LAB_VARIANT" == cilium ]]; then
+            tool_variant=cilium
+          fi
+          ./scripts/integration-tools.sh "$KUBERNETES_VERSION" "$RUNNER_TEMP/kubedoctor-tools" "$tool_variant"
           printf '%s\n' "$RUNNER_TEMP/kubedoctor-tools" >> "$GITHUB_PATH"
-      - name: Exercise the plugin against a disposable cluster
-        run: ./scripts/integration.sh "$KUBERNETES_VERSION"
+      - name: Exercise the connected workflow against a disposable cluster
+        shell: bash
+        run: |
+          KUBEDOCTOR_EXAMPLE_DIR="$RUNNER_TEMP/kubedoctor-examples" \
+            ./scripts/integration.sh "$KUBERNETES_VERSION" "$LAB_VARIANT"
+      - name: Store the verified synthetic incident artifacts
+        if: matrix.variant == 'nodelocal'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: verified-synthetic-incident
+          path: ${{ runner.temp }}/kubedoctor-examples
+          if-no-files-found: error
+          retention-days: 7

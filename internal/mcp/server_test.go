@@ -130,7 +130,12 @@ func TestToolSchemasAndScope(t *testing.T) {
 		}
 	}
 	slices.Sort(names)
-	if !slices.Equal(names, []string{clusterTool, namespaceTool, checksTool}) {
+	expectedNames := []string{
+		namespaceTool, clusterTool, checksTool, captureNamespace, captureCluster, listArtifacts,
+		inspectBundle, analyzeBundle, getEvidence, getRelationships, compareCaptures, historicalTool,
+	}
+	slices.Sort(expectedNames)
+	if !slices.Equal(names, expectedNames) {
 		t.Fatalf("tools = %v", names)
 	}
 
@@ -317,7 +322,7 @@ func TestConcurrentDiagnosticsRejectAdditionalScan(t *testing.T) {
 	}
 
 	busy := callTool(t, client, namespaceTool, `{"namespace":"payments"}`)
-	if !busy.IsError || !strings.Contains(string(resultJSON(t, busy)), "A diagnostic scan is already running") || scans.Load() != 1 {
+	if !busy.IsError || !strings.Contains(string(resultJSON(t, busy)), errBusy.Error()) || scans.Load() != 1 {
 		t.Fatalf("overlapping scan returned %s with %d scans", resultJSON(t, busy), scans.Load())
 	}
 	if inventory := callTool(t, client, checksTool, `{}`); inventory.IsError {

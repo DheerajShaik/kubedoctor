@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -55,11 +56,16 @@ func readPages[T any, L metav1.ListInterface, O any](
 	var output []O
 	seenTokens := make(map[string]bool)
 	itemCount := 0
+	var started time.Time
+	defer func() { recordSourceTiming(ctx, source, "", started) }()
 	unexpectedObjects := false
 	access, checkScope := ctx.Value(scanAccessKey{}).(scanAccess)
 	for page := 0; page < maxPages; page++ {
 		if err := ctx.Err(); err != nil {
 			return output, collectionError(source, required, err)
+		}
+		if started.IsZero() {
+			started = time.Now()
 		}
 		list, err := get(requestContext(ctx), options)
 		if err != nil {
@@ -107,6 +113,8 @@ func inScope(source model.Source, access scanAccess, item metav1.Object) bool {
 		return namespace == ""
 	case model.SourceDNSPods:
 		return namespace == dnsNamespace && item.GetLabels()["k8s-app"] == dnsService
+	case model.SourceNodeLocalPods:
+		return namespace == dnsNamespace && item.GetLabels()["k8s-app"] == nodeLocalDNS
 	case model.SourceDNSEndpointSlices:
 		return namespace == dnsNamespace && item.GetLabels()["kubernetes.io/service-name"] == dnsService
 	default:

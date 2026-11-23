@@ -9,9 +9,10 @@ import (
 )
 
 func Checks() []model.CheckDefinition {
-	definitions := make([]model.CheckDefinition, 0, len(workloadDefinitions)+len(networkDefinitions))
+	definitions := make([]model.CheckDefinition, 0, len(workloadDefinitions)+len(networkDefinitions)+len(expansionDefinitions))
 	definitions = append(definitions, workloadDefinitions...)
 	definitions = append(definitions, networkDefinitions...)
+	definitions = append(definitions, expansionDefinitions...)
 	slices.SortFunc(definitions, func(a, b model.CheckDefinition) int {
 		return cmp.Compare(a.ID, b.ID)
 	})

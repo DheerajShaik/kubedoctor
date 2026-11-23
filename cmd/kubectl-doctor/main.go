@@ -9,7 +9,7 @@ import (
 	"github.com/DheerajShaik/kubedoctor/internal/cli"
 )
 
-var version = "v0.1.0-dev"
+var version = "v0.2.0-dev"
 var commit = "unknown"
 
 func main() {

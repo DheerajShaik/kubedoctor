@@ -80,6 +80,7 @@ func newCommand(build Build, factory scannerFactory) *cobra.Command {
 	root.PersistentFlags().StringVar(&options.context, "context", "", "Kubeconfig context to use")
 	root.AddCommand(scanCommand(model.NamespaceScope, options, factory), scanCommand(model.ClusterScope, options, factory))
 	root.AddCommand(mcpCommand(options, factory, build))
+	root.AddCommand(captureCommand(options, factory, build), inspectCommand(), replayCommand(), compareCommand())
 	root.AddCommand(&cobra.Command{
 		Use:   "checks",
 		Short: "List diagnostic checks",

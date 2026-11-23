@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 022
 
-version=${1:?usage: scripts/release.sh v0.1.0 [output-directory]}
+version=${1:?usage: scripts/release.sh v0.2.0 [output-directory]}
 if [[ ! $version =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   printf 'Invalid release version %s\n' "$version" >&2
   exit 2
@@ -31,6 +32,8 @@ for platform in "${platforms[@]}"; do
   GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -buildvcs=false \
     -ldflags "-X main.version=$version -X main.commit=$revision" -o "$stage/$executable" ./cmd/kubectl-doctor
   cp LICENSE README.md "$stage/"
+  chmod 0755 "$stage/$executable"
+  chmod 0644 "$stage/LICENSE" "$stage/README.md"
   names=("$executable" LICENSE README.md)
   if [[ $target_os == windows ]]; then
     archive="$archive_name.zip"
@@ -46,3 +49,19 @@ for platform in "${platforms[@]}"; do
   archives+=("$archive")
 done
 (cd "$output" && sha256sum "${archives[@]}" > SHA256SUMS)
+
+# Ship synthetic incident examples and the release contracts as a separate
+# archive so that operators can try offline replay before connecting a cluster.
+release_docs="docs/releases/$version"
+if [[ -d $release_docs/examples ]]; then
+  guide="kubedoctor-${version}-examples"
+  mkdir -p "$staging/$guide"
+  cp -r "$release_docs/examples" "$staging/$guide/"
+  cp "$release_docs"/{MIGRATION,LAB,BUNDLE,INVESTIGATION,HISTORY,HTML,DIAGNOSTICS,ACCEPTANCE,VALIDATION,REPRODUCE}.md "$staging/$guide/"
+  cp LICENSE "$staging/$guide/"
+  find "$staging/$guide" -type f -exec chmod 0644 {} +
+  example_archive="$guide.zip"
+  (cd "$staging" && find "$guide" -type f -exec touch -d "@$build_time" {} + && find "$guide" -type f | LC_ALL=C sort | zip -X -q "$example_archive" -@)
+  mv "$staging/$example_archive" "$output/$example_archive"
+  (cd "$output" && sha256sum "$example_archive" >> SHA256SUMS)
+fi

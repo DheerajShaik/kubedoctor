@@ -20,6 +20,8 @@ const (
 	maxResponseBytes   = 32 << 20
 	maxRequestAttempts = 3
 	dnsPodSelector     = "k8s-app=kube-dns"
+	nodeLocalDNS       = "node-local-dns"
+	nodeLocalSelector  = "k8s-app=node-local-dns"
 )
 
 var errDisallowedRequest = errors.New("Kubernetes diagnostic request is outside the read-only API surface")
@@ -35,8 +37,9 @@ func requestContext(ctx context.Context) context.Context {
 }
 
 type scanAccess struct {
-	namespace string
-	cluster   bool
+	namespace  string
+	cluster    bool
+	provenance bool
 }
 
 func withAccess(ctx context.Context, access scanAccess) context.Context {
@@ -116,7 +119,7 @@ func (t diagnosticTransport) allows(req *http.Request, access scanAccess) bool {
 		case "limit", "continue", "timeout", "timeoutSeconds":
 		case "labelSelector":
 			if (p != "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices" || values[0] != dnsSliceSelector) &&
-				(p != "/api/v1/namespaces/kube-system/pods" || values[0] != dnsPodSelector) {
+				(p != "/api/v1/namespaces/kube-system/pods" || (values[0] != dnsPodSelector && values[0] != nodeLocalSelector)) {
 				return false
 			}
 		default:
@@ -129,13 +132,17 @@ func (t diagnosticTransport) allows(req *http.Request, access scanAccess) bool {
 		return true
 	case "/api/v1/namespaces/" + access.namespace:
 		return !access.cluster && validNamespace(access.namespace)
+	case "/api/v1/namespaces/kube-system":
+		return access.cluster && access.provenance
 	case "/api/v1/namespaces/kube-system/services/kube-dns",
 		"/api/v1/namespaces/kube-system/endpoints/kube-dns",
 		"/api/v1/namespaces/kube-system/configmaps/coredns",
 		"/api/v1/namespaces/kube-system/configmaps/kube-dns":
 		return true
+	case "/apis/apps/v1/namespaces/kube-system/daemonsets/node-local-dns":
+		return true
 	case "/api/v1/namespaces/kube-system/pods":
-		if query.Get("labelSelector") == dnsPodSelector {
+		if query.Get("labelSelector") == dnsPodSelector || query.Get("labelSelector") == nodeLocalSelector {
 			return true
 		}
 	case "/apis/discovery.k8s.io/v1/namespaces/kube-system/endpointslices":
@@ -171,7 +178,7 @@ func (t diagnosticTransport) allows(req *http.Request, access scanAccess) bool {
 func splitResourcePath(p string) (string, string) {
 	for _, api := range []string{
 		"/api/v1", "/apis/apps/v1", "/apis/discovery.k8s.io/v1",
-		"/apis/networking.k8s.io/v1", "/apis/policy/v1", "/apis/metrics.k8s.io/v1beta1",
+		"/apis/networking.k8s.io/v1", "/apis/policy/v1", "/apis/metrics.k8s.io/v1beta1", "/apis/batch/v1", "/apis/autoscaling/v2",
 	} {
 		if suffix, found := strings.CutPrefix(p, api+"/"); found {
 			return api, suffix
@@ -184,11 +191,15 @@ func inventoryResource(api, resource string) bool {
 	switch api {
 	case "/api/v1":
 		switch resource {
-		case "pods", "events", "configmaps", "persistentvolumeclaims", "services", "endpoints":
+		case "pods", "events", "configmaps", "persistentvolumeclaims", "services", "endpoints", "resourcequotas", "limitranges":
 			return true
 		}
 	case "/apis/apps/v1":
-		return resource == "deployments" || resource == "daemonsets" || resource == "replicasets"
+		return resource == "deployments" || resource == "daemonsets" || resource == "replicasets" || resource == "statefulsets"
+	case "/apis/batch/v1":
+		return resource == "jobs" || resource == "cronjobs"
+	case "/apis/autoscaling/v2":
+		return resource == "horizontalpodautoscalers"
 	case "/apis/discovery.k8s.io/v1":
 		return resource == "endpointslices"
 	case "/apis/networking.k8s.io/v1":
