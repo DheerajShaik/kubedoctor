@@ -17,6 +17,13 @@ run_deep_diagnostics() {
   kube -n doctor-rules wait --for=condition=Failed job/fixture-failed --timeout=120s
   kube -n doctor-rules wait --for=create --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=ImagePullBackOff pod/stateful-image-0 --timeout=120s
   kube -n doctor-rules wait --for=condition=ScalingActive=false hpa/stateful-image --timeout=120s
+  kube -n doctor-rules wait --for=create event \
+    --field-selector involvedObject.kind=HorizontalPodAutoscaler,involvedObject.name=stateful-image,reason=FailedGetResourceMetric \
+    --timeout=90s
+  kube -n doctor-rules get hpa stateful-image -o json | jq -ce '
+    {fixture: "stateful-image", generation: .metadata.generation, observed_generation: .status.observedGeneration,
+     conditions: [.status.conditions[] | {type, status, reason, lastTransitionTime}]} |
+    select(any(.conditions[]; .type == "ScalingActive" and .status == "False" and .reason == "FailedGetResourceMetric"))'
   kube -n doctor-rules wait --for=jsonpath='{.status.conditions[?(@.type=="Progressing")].reason}'=ProgressDeadlineExceeded deployment/probe-trip --timeout=120s
   kube -n doctor-quota wait --for=condition=ReplicaFailure deployment/quota-blocked --timeout=120s
   kube -n doctor-limits wait --for=condition=ReplicaFailure deployment/limits-blocked --timeout=120s
@@ -33,7 +40,8 @@ run_deep_diagnostics() {
     any(.findings[]; .rule_id == "statefulset-rollout" and .resource.name == "stateful-image") and
     any(.findings[]; .rule_id == "job-execution" and .resource.name == "fixture-failed") and
     any(.findings[]; .rule_id == "cronjob-scheduling" and .resource.name == "fixture-suspended" and .severity == "info") and
-    any(.findings[]; .rule_id == "hpa-scaling" and .resource.name == "stateful-image") and
+    any(.findings[]; .rule_id == "hpa-scaling" and .resource.name == "stateful-image" and
+      any(.evidence[]; .field == "condition_reason" and .value == "FailedGetResourceMetric")) and
     any(.findings[]; .rule_id == "rollout-probes" and (.resource.name | startswith("probe-trip-"))) and
     any(.findings[]; .rule_id == "pvc-binding" and .resource.name == "missing-storage") and
     any(.findings[]; .rule_id == "networkpolicy-named-ports")'
@@ -126,11 +134,13 @@ YAML
 
 run_offline_replay() {
   local evidence_dir=$1
+  local -a offline_args
+  docker pull --quiet "$fixture_probe_image" >/dev/null
   # Replay gets a copy of only the baseline bundle and two challenge configs.
   # The first intentionally cannot parse. The second points to no usable API and
   # has an inert marker helper to expose anyone trying live authentication.
   mkdir -p "$test_dir/offline/input" "$test_dir/offline/proof"
-  install -m 0600 "$evidence_dir/before.bundle.json" "$test_dir/offline/input/before.bundle.json"
+  install -m 0444 "$evidence_dir/before.bundle.json" "$test_dir/offline/input/before.bundle.json"
   printf '%s\n' 'broken: [kubeconfig' >"$test_dir/offline/input/malformed"
   cat >"$test_dir/offline/input/helper" <<'EOF_CONFIG'
 apiVersion: v1
@@ -154,14 +164,29 @@ users:
         command: /bin/sh
         args: ['-c', 'printf invoked > /proof/helper-ran']
 EOF_CONFIG
+  # These are synthetic copies under the private test directory. Readable
+  # inputs and a writable scratch mount work with rootful and remapped Docker.
+  chmod 0755 "$test_dir/offline/input"
+  chmod 0444 "$test_dir/offline/input/"{malformed,helper}
+  chmod 0733 "$test_dir/offline/proof"
+  offline_args=(
+    --rm --pull=never --network none --read-only --cap-drop ALL
+    --security-opt no-new-privileges --user "$(id -u):$(id -g)"
+    --mount "type=bind,src=$test_dir/bin/kubectl-doctor,dst=/doctor,readonly"
+    --mount "type=bind,src=$test_dir/offline/input,dst=/input,readonly"
+    --mount "type=bind,src=$test_dir/offline/proof,dst=/proof"
+  )
+  docker run "${offline_args[@]}" --entrypoint /bin/sh "$fixture_probe_image" -ec '
+    test -r /input/before.bundle.json
+    test "$(ls /sys/class/net)" = lo
+    test -z "$(ip route)"
+    printf verified > /proof/control
+  '
+  [[ "$(cat "$test_dir/offline/proof/control")" == verified ]]
   local config
   for config in malformed helper; do
-    docker run --rm --pull=never --network none --read-only --cap-drop ALL \
-      --security-opt no-new-privileges --user "$(id -u):$(id -g)" \
-      --mount "type=bind,src=$test_dir/bin/kubectl-doctor,dst=/doctor,readonly" \
-      --mount "type=bind,src=$test_dir/offline/input,dst=/input,readonly" \
-      --mount "type=bind,src=$test_dir/offline/proof,dst=/proof" \
-      -e "KUBECONFIG=/input/$config" --entrypoint /doctor "$image" \
+    docker run "${offline_args[@]}" \
+      -e "KUBECONFIG=/input/$config" --entrypoint /doctor "$fixture_probe_image" \
       replay /input/before.bundle.json -o json >"$test_dir/offline-$config.json"
     diff -u <(jq -S . "$evidence_dir/before.json") <(jq -S . "$test_dir/offline-$config.json")
   done

@@ -21,7 +21,7 @@ kubectl doctor capture namespace payments --bundle after.json
 kubectl doctor compare before.json after.json --fail-on warning
 ```
 
-Capture uses the selected Kubernetes context. Replay, comparison and report generation work from local bundles. An investigation connects findings to resources and supporting evidence. Collection gaps remain visible when a repair cannot be verified. Follow the [offline example and upgrade instructions](docs/releases/v0.2.0/MIGRATION.md), [historical provider configuration](docs/releases/v0.2.0/HISTORY.md), and [diagnostic scope](docs/releases/v0.2.0/DIAGNOSTICS.md).
+Capture uses the selected Kubernetes context. Replay, comparison and report generation work from local bundles. An investigation connects findings to resources and supporting evidence. Collection gaps remain visible when a repair cannot be verified. See the [bundle retention and integrity contract](docs/releases/v0.2.0/BUNDLE.md). Follow the [offline example and upgrade instructions](docs/releases/v0.2.0/MIGRATION.md), [historical provider configuration](docs/releases/v0.2.0/HISTORY.md), and [diagnostic scope](docs/releases/v0.2.0/DIAGNOSTICS.md).
 
 ## Install
 

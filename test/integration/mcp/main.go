@@ -31,12 +31,31 @@ func run(args []string) error {
 		return errors.New("usage: mcp <binary> <disposable kubeconfig> <context> <evidence directory>")
 	}
 	binary, kubeconfig, contextName, evidenceDir := args[0], args[1], args[2], args[3]
+	wantBefore, err := readCanonical(filepath.Join(evidenceDir, "before.json"))
+	if err != nil {
+		return err
+	}
+	wantAfter, err := readCanonical(filepath.Join(evidenceDir, "after.json"))
+	if err != nil {
+		return err
+	}
+	wantComparison, err := readCanonical(filepath.Join(evidenceDir, "comparison.json"))
+	if err != nil {
+		return err
+	}
+	var capturedScope struct {
+		ClusterID string `json:"cluster_id"`
+	}
+	if err := json.Unmarshal(wantBefore, &capturedScope); err != nil || capturedScope.ClusterID == "" {
+		return errors.New("expected a verified identity digest from the namespace capture")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, binary, "mcp", "serve", "--stdio", "--kubeconfig", kubeconfig,
 		"--context", contextName, "--allow-namespace", "doctor-incident", "--artifact-dir", evidenceDir,
+		"--artifact-cluster-id", capturedScope.ClusterID,
 		"--allow-bundle", "before.bundle.json", "--allow-bundle", "after.bundle.json")
 	cmd.Stderr = &stderr
 	client := mcp.NewClient(&mcp.Implementation{Name: "kubedoctor-live-lab"}, nil)
@@ -58,19 +77,6 @@ func run(args []string) error {
 	}
 	if len(inventory.Artifacts) != 2 {
 		return errors.New("expected exactly two authorized fixture bundles")
-	}
-
-	wantBefore, err := readCanonical(filepath.Join(evidenceDir, "before.json"))
-	if err != nil {
-		return err
-	}
-	wantAfter, err := readCanonical(filepath.Join(evidenceDir, "after.json"))
-	if err != nil {
-		return err
-	}
-	wantComparison, err := readCanonical(filepath.Join(evidenceDir, "comparison.json"))
-	if err != nil {
-		return err
 	}
 
 	var beforeID, afterID string

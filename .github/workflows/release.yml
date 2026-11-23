@@ -38,4 +38,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --verify-tag --draft --title "KubeDoctor $RELEASE_TAG" --notes-file CHANGELOG.md dist/*
+        run: |
+          notes="$RUNNER_TEMP/kubedoctor-release-notes.md"
+          {
+            awk -v release="$RELEASE_TAG" '$0 == "## " release {show=1; next} /^## / && show {exit} show' CHANGELOG.md
+            printf '\nBuilt from [commit %s](https://github.com/%s/commit/%s).\n' "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_SHA"
+            printf '\n[Installation and offline example](https://github.com/%s/blob/%s/docs/releases/%s/MIGRATION.md) · [Compatibility matrix](https://github.com/%s/blob/%s/docs/releases/%s/LAB.md) · [Verification](https://github.com/%s/blob/%s/docs/releases/%s/VALIDATION.md)\n' \
+              "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$RELEASE_TAG" "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$RELEASE_TAG"
+            printf '\n### SHA-256\n\n```text\n'
+            cat dist/SHA256SUMS
+            printf '```\n'
+          } > "$notes"
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "KubeDoctor $RELEASE_TAG" --notes-file "$notes" dist/*

@@ -48,6 +48,8 @@ jobs:
       - run: go vet ./...
       - run: go test -count=1 ./...
       - run: go test -race -count=1 ./...
+      - name: Regenerate the sanitized examples
+        run: ./scripts/check-examples.sh
 
   bundle-fuzz:
     name: Bounded bundle parser fuzzing
@@ -106,7 +108,7 @@ jobs:
             -run '^TestRenderedReportAndBrowserFixture$' ./internal/htmlreport
           "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" test/browser/offline.py "$RUNNER_TEMP/browser/browser.html" \
             --comparison docs/releases/v0.2.0/examples/comparison.html --chromium "$chromium" \
-            --output "$RUNNER_TEMP/browser"
+            --output "$RUNNER_TEMP/browser" --example-dir docs/releases/v0.2.0/examples
 
   vulnerabilities:
     name: Go vulnerability check

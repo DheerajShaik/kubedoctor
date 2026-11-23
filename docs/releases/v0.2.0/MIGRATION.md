@@ -39,7 +39,7 @@ Make the executable's directory available on PATH for kubectl plugin discovery. 
 
 ## Try an investigation without Kubernetes
 
-From the repository root with the plugin installed, choose new output filenames. The example bundles are deterministic synthetic observations of one Deployment and Pod before and after recovery.
+From the repository root with the plugin installed, choose new output filenames. The example bundles are deterministic synthetic observations of one Deployment and Pod before and after recovery. The draft also includes `kubedoctor-v0.2.0-examples.zip`. After extracting it, use `examples/before.json` and `examples/after.json` from inside its top-level directory.
 
 ```sh
 kubectl doctor inspect docs/releases/v0.2.0/examples/before.json

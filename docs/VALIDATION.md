@@ -1,5 +1,7 @@
 # Validation
 
+See the [v0.2.0 verification record](releases/v0.2.0/VALIDATION.md), [acceptance matrix](releases/v0.2.0/ACCEPTANCE.md), and [lab](releases/v0.2.0/LAB.md) for investigation validation. The initial-release evidence is retained below.
+
 Run from the repository root with the version in go.mod.
 
 ```sh

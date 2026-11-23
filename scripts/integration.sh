@@ -20,7 +20,7 @@ case "$kubernetes_version/$variant" in
     ;;
 esac
 
-for dependency in docker go jq kind kubectl; do
+for dependency in docker go jq kind kubectl python3; do
   command -v "$dependency" >/dev/null || { printf 'Missing command: %s\n' "$dependency" >&2; exit 2; }
 done
 
@@ -103,6 +103,9 @@ export PATH="$test_dir/bin:$PATH"
 PATH="$test_dir/bin" "$kubectl_path" plugin list | grep -Fx "$test_dir/bin/kubectl-doctor"
 PATH="$test_dir/bin" "$kubectl_path" doctor version
 "$test_dir/bin/kubectl-doctor" checks >/dev/null
+if [[ "$kubernetes_version" == 1.35.8 ]]; then
+  python3 test/transport/smoke.py "$test_dir/bin" "$(dirname "$kubectl_path")"
+fi
 
 existing_clusters=$(kind get clusters)
 if grep -Fxq "$cluster" <<<"$existing_clusters"; then
@@ -110,16 +113,21 @@ if grep -Fxq "$cluster" <<<"$existing_clusters"; then
   exit 1
 fi
 delete_cluster=true
-if [[ "$variant" == cilium ]]; then
-  command -v cilium >/dev/null
+if [[ "$variant" != default ]]; then
   cat >"$test_dir/kind.yaml" <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
   apiServerAddress: "127.0.0.1"
-  disableDefaultCNI: true
+  kubeProxyMode: "iptables"
 EOF
-  kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --config "$test_dir/kind.yaml"
+  if [[ "$variant" == cilium ]]; then
+    command -v cilium >/dev/null
+    printf '%s\n' '  disableDefaultCNI: true' >>"$test_dir/kind.yaml"
+    kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --config "$test_dir/kind.yaml"
+  else
+    kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --config "$test_dir/kind.yaml" --wait 180s
+  fi
 else
   kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --wait 180s
 fi

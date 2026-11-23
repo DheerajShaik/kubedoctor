@@ -27,4 +27,8 @@ The [release charter](RELEASE_CHARTER.md) defines mandatory outcomes. Evidence e
 
 ## Run record
 
-The selected workspace serves the existing repository and contains a rootless Docker 29.9.2 daemon. The v0.1 suite used hosted CI because that environment lacked kind cgroup delegation. The v0.2 live matrix, exact revision, and overlapping browser and provider outcomes will be recorded here after execution.
+The selected workspace serves the existing repository and contains a rootless Docker 29.9.2 daemon. A fresh v0.2 kind probe failed before node creation because that environment lacks cgroup delegation. Hosted CI runs the live matrix.
+
+Local verification in the implementation workspace based on `bca2c25` passed strict structural validation for all 45 Kubernetes and RBAC resources using both 1.35.8 and 1.36.4 schemas, workflow lint, and Bash syntax. The separately compiled CLI and real MCP SDK agreed on before/after investigations and recovery from synthetic API responses. A network-none container with a positive isolation and marker control replayed the same evidence twice while the challenge kubeconfigs remained unusable. See the [implementation review](IMPLEMENTATION_REVIEW.md) and [validation log](VALIDATION.md) for the distinction between local observations and current-head release gates.
+
+The first hosted run reached the expanded diagnostics in all three matrix jobs and exposed a false stale judgment for stock unversioned HPA conditions. Those jobs failed and did not reach the connected workflow or specialized DNS/CNI scenarios. The fixture now records the two generation fields, exact condition and Warning evidence needed to validate the corrected interpretation. [First hosted run](https://github.com/DheerajShaik/kubedoctor/actions/runs/45155159850)

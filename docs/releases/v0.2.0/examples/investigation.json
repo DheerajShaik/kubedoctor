@@ -259,7 +259,7 @@
         "source": "pod_metrics",
         "status": "unavailable",
         "required": false,
-        "detail": "Metrics API unavailable."
+        "detail": "the Pod Metrics API is not installed"
       }
     ],
     "sources": [
@@ -342,7 +342,7 @@
         "source": "pod_metrics",
         "status": "unavailable",
         "required": false,
-        "detail": "Metrics API unavailable."
+        "detail": "the Pod Metrics API is not installed"
       },
       {
         "source": "poddisruptionbudgets",

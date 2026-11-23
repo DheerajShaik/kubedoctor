@@ -58,7 +58,7 @@ func fixture(repaired bool) model.Snapshot {
 		s.Sources = append(s.Sources, model.SourceResult{Source: source, Status: model.Complete, Required: source == model.SourcePods})
 		s.SourceTimings = append(s.SourceTimings, model.SourceTiming{Source: source, StartedAt: s.StartedAt, FinishedAt: s.FinishedAt})
 	}
-	s.Sources = append(s.Sources, model.SourceResult{Source: model.SourceMetrics, Status: model.Unavailable, Detail: "Metrics API unavailable."})
+	s.Sources = append(s.Sources, model.SourceResult{Source: model.SourceMetrics, Status: model.Unavailable, Detail: "the Pod Metrics API is not installed"})
 	return s
 }
 func run(dir string) error {
