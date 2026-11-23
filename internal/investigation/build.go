@@ -38,7 +38,9 @@ func Build(snapshot model.Snapshot, report model.Report) Investigation {
 	}
 	inventory := newInventory(snapshot)
 	inv.Relationships = buildRelationships(snapshot, inventory, &inv)
+	inventory.recordReadyStatefulOrdinals()
 	inv.Resources = inventory.observations()
+	inv.applicability = applicableEvidence(snapshot, inventory)
 	inv.Timeline = buildTimeline(snapshot, inventory, &inv)
 	inv.Incidents = groupIncidents(inv)
 	linkIncidentEvidence(&inv)
@@ -94,15 +96,17 @@ func newInventory(s model.Snapshot) *inventory {
 	}
 	for i := range s.Deployments {
 		item := &s.Deployments[i]
-		add("Deployment", model.SourceDeployments, item, item.Spec.Replicas == nil || *item.Spec.Replicas > 0,
+		desired := replicas(item.Spec.Replicas)
+		add("Deployment", model.SourceDeployments, item, desired > 0 && item.DeletionTimestamp == nil,
 			item.Generation > 0 && item.Status.ObservedGeneration == item.Generation, item.Status.AvailableReplicas > 0)
-		index.expectPods(model.Identity("Deployment", item), replicas(item.Spec.Replicas))
+		index.recordRollout(model.Identity("Deployment", item), desired, deploymentRollout(item, desired))
 	}
 	for i := range s.DaemonSets {
 		item := &s.DaemonSets[i]
-		add("DaemonSet", model.SourceDaemonSets, item, item.Status.DesiredNumberScheduled > 0,
+		desired := item.Status.DesiredNumberScheduled
+		add("DaemonSet", model.SourceDaemonSets, item, desired > 0 && item.DeletionTimestamp == nil,
 			item.Generation > 0 && item.Status.ObservedGeneration == item.Generation, item.Status.NumberAvailable > 0)
-		index.expectPods(model.Identity("DaemonSet", item), item.Status.DesiredNumberScheduled)
+		index.recordRollout(model.Identity("DaemonSet", item), desired, daemonSetRollout(item, desired))
 	}
 	for i := range s.PVCs {
 		item := &s.PVCs[i]

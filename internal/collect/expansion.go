@@ -93,6 +93,7 @@ func (c *Collector) collectNodeLocalDNS(ctx context.Context, namespace string, s
 		Resource: projectedIdentity("DaemonSet", configuration), Created: configuration.CreationTimestamp.Time,
 		Generation: configuration.Generation, ObservedGeneration: configuration.Status.ObservedGeneration,
 		Desired: configuration.Status.DesiredNumberScheduled, Ready: configuration.Status.NumberReady,
+		Deleting: configuration.DeletionTimestamp != nil,
 	}
 	hosts := map[string]bool{}
 	if namespace != "" {

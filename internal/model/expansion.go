@@ -185,6 +185,7 @@ type NodeLocalDNSEvidence struct {
 	ObservedGeneration int64     `json:"observed_generation"`
 	Desired            int32     `json:"desired"`
 	Ready              int32     `json:"ready"`
+	Deleting           bool      `json:"deleting,omitempty"`
 }
 
 type NodeLocalPodEvidence struct {

@@ -239,8 +239,8 @@ func classify(change *Change, left, right compareSnapshot, incompatibility strin
 		change.Classification, change.Reason = NoLongerObservable, "The earlier finding records a historical occurrence or sample. Recovery remains unverified."
 		return false
 	}
-	if !positiveContinuity(left, right, subject, finding) {
-		change.Classification, change.Reason = NoLongerObservable, "Source coverage alone is insufficient. Fresh status and, for Pod symptoms, comparable active Ready members are needed."
+	if reason := recoveryLimitation(left, right, subject, finding); reason != "" {
+		change.Classification, change.Reason = NoLongerObservable, reason
 		return true
 	}
 	change.Classification, change.Reason = Resolved, "Compatible observations cover the same UID and show current subject evidence without the previously detected condition."
@@ -285,6 +285,16 @@ func comparisonVisibility(change *Change, finding model.Finding, left, right com
 	return ""
 }
 
+func recoveryLimitation(left, right compareSnapshot, subject model.Resource, finding model.Finding) string {
+	if rolloutRule(finding.RuleID) {
+		return rolloutRecoveryLimit(left.inventory[subject], right.inventory[subject], right, finding)
+	}
+	if !positiveContinuity(left, right, subject, finding) {
+		return "Source coverage alone is insufficient. Fresh status and, for Pod symptoms, comparable active Ready members are needed."
+	}
+	return podContainerRecoveryLimitation(left, right, subject, finding)
+}
+
 func positiveContinuity(left, right compareSnapshot, subject model.Resource, finding model.Finding) bool {
 	before, known := left.inventory[subject]
 	after := right.inventory[subject]
@@ -298,10 +308,13 @@ func positiveContinuity(left, right compareSnapshot, subject model.Resource, fin
 		switch finding.RuleID {
 		case "service.backends", "service.ports", "service-endpoint-identity":
 			return comparableServiceBackend(before, after, finding)
-		case "deployment-rollout", "daemonset-rollout", "statefulset-rollout", "pdb.disruptions":
+		case "pdb.disruptions":
 			return after.Active && after.Ready
 		case "job-execution", "pvc-binding":
 			return after.Ready
+		}
+		if handled, current := relevantNonRolloutEvidence(left, right, finding); handled {
+			return current
 		}
 		return true
 	}
@@ -369,6 +382,8 @@ func conditionKey(finding model.Finding) string {
 		add("backend_service", "backend_port")
 	case "networkpolicy.isolation":
 		add("direction")
+	case "networkpolicy-named-ports":
+		add("named_port", "protocol")
 	case "service.backends":
 		switch {
 		case evidenceValue(finding, "usable_backend_entries") == "0":

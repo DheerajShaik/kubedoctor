@@ -23,7 +23,7 @@ func addExpansionInventory(s model.Snapshot, index *inventory) {
 	for _, statefulSet := range s.Expansion.StatefulSets {
 		index.add(statefulSet.Resource, model.SourceStatefulSets, statefulSet.Created, statefulSet.Desired > 0 && !statefulSet.Deleting,
 			statefulSet.Generation > 0 && statefulSet.ObservedGeneration == statefulSet.Generation, statefulSet.Ready > 0)
-		index.expectPods(statefulSet.Resource, statefulSet.Desired)
+		index.recordRollout(statefulSet.Resource, statefulSet.Desired, statefulSetRollout(statefulSet))
 	}
 	for _, job := range s.Expansion.Jobs {
 		terminal := slices.ContainsFunc(job.Conditions, func(condition model.BriefCondition) bool {

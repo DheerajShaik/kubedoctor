@@ -34,6 +34,7 @@ type Investigation struct {
 	Limitations        []string              `json:"limitations"`
 	Truncated          bool                  `json:"truncated"`
 	History            *model.HistoryReport  `json:"history,omitempty"`
+	applicability      comparisonApplicability
 }
 
 // ResourceObservation describes an observed object instance and its strongest
@@ -49,6 +50,7 @@ type ResourceObservation struct {
 	Ready        bool                `json:"ready"`
 	ExpectedPods *int32              `json:"expected_pods,omitempty"`
 	Service      *ServiceObservation `json:"service,omitempty"`
+	rollout      *rolloutObservation
 }
 
 type ServiceObservation struct {

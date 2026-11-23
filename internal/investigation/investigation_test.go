@@ -62,6 +62,8 @@ func fixtureSnapshot(completed time.Time, ready bool, podUID string) (model.Snap
 	pod.OwnerReferences = []metav1.OwnerReference{owner("ReplicaSet", &rs)}
 	if ready {
 		deployment.Status.AvailableReplicas = 1
+		deployment.Status.ReadyReplicas = 1
+		deployment.Status.UpdatedReplicas = 1
 		rs.Status.ReadyReplicas = 1
 		pod.Status.Phase = core.PodRunning
 		pod.Status.Conditions = []core.PodCondition{{Type: core.PodReady, Status: core.ConditionTrue, LastTransitionTime: metav1.NewTime(completed.Add(-time.Second))}}
