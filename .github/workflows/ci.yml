@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  go-checks:
+    name: Go checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.4'
+      - name: Record pull request base protection
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if protection=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BASE" --jq '.protected'); then
+            printf 'Base branch protected: %s\n' "$protection"
+          else
+            printf 'Base branch protection metadata unavailable.\n'
+          fi
+      - name: Go formatting
+        shell: bash
+        run: |
+          unformatted="$(git ls-files -z -- '*.go' | xargs -0r gofmt -l)"
+          if [[ -n "$unformatted" ]]; then
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
+      - run: go mod verify
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - run: go test -race -count=1 ./...
+
+  vulnerabilities:
+    name: Go vulnerability check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.4'
+      - name: Scan reachable Go vulnerabilities
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/kubedoctor-tools"
+          GOBIN="$RUNNER_TEMP/kubedoctor-tools" go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+          "$RUNNER_TEMP/kubedoctor-tools/govulncheck" ./...
+
+  builds:
+    name: Build ${{ matrix.os }}/${{ matrix.arch }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.4'
+      - name: Cross-compile kubectl-doctor
+        shell: bash
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          binary="$RUNNER_TEMP/kubectl-doctor"
+          if [[ "$GOOS" == windows ]]; then
+            binary="$binary.exe"
+          fi
+          go build -trimpath -o "$binary" ./cmd/kubectl-doctor
+          test -s "$binary"
+
+  integration:
+    name: Kubernetes ${{ matrix.kubernetes }} integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        kubernetes: ['1.35.8', '1.36.4']
+    env:
+      KUBERNETES_VERSION: ${{ matrix.kubernetes }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.4'
+      - name: Install pinned kind and kubectl
+        shell: bash
+        run: |
+          ./scripts/integration-tools.sh "$KUBERNETES_VERSION" "$RUNNER_TEMP/kubedoctor-tools"
+          printf '%s\n' "$RUNNER_TEMP/kubedoctor-tools" >> "$GITHUB_PATH"
+      - name: Exercise the plugin against a disposable cluster
+        run: ./scripts/integration.sh "$KUBERNETES_VERSION"

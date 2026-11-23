@@ -1,0 +1,26 @@
+# Example for an identity authorized to inspect every namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubedoctor-cluster-reader
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods, events, configmaps, persistentvolumeclaims, services, endpoints]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, replicasets]
+    verbs: [list]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [list]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [list]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [list]
+  - nonResourceURLs: [/apis/discovery.k8s.io/v1]
+    verbs: [get]

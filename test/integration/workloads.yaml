@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: doctor-healthy
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: doctor-broken
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ready-config
+  namespace: doctor-healthy
+data:
+  Corefile: |
+    .:1053 {
+      errors
+      health :8080
+    }
+  example-app-token: KUBEDOCTOR_INTEGRATION_CREDENTIAL_SENTINEL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ready-app
+  namespace: doctor-healthy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ready-app
+  template:
+    metadata:
+      labels:
+        app: ready-app
+    spec:
+      containers:
+        - name: app
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+          args: ['-conf', '/etc/coredns/Corefile']
+          env:
+            - name: EXAMPLE_TOKEN
+              value: KUBEDOCTOR_INTEGRATION_CREDENTIAL_SENTINEL
+          ports:
+            - name: health
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+          volumeMounts:
+            - name: config
+              mountPath: /etc/coredns
+              readOnly: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 30Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
+      volumes:
+        - name: config
+          configMap:
+            name: ready-config
+            items:
+              - key: Corefile
+                path: Corefile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ready-app
+  namespace: doctor-healthy
+spec:
+  selector:
+    app: ready-app
+  ports:
+    - name: health
+      port: 80
+      targetPort: health
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-name
+  namespace: doctor-healthy
+spec:
+  type: ExternalName
+  externalName: fixture.example.invalid
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paused-and-scaled-to-zero
+  namespace: doctor-healthy
+spec:
+  paused: true
+  replicas: 0
+  selector:
+    matchLabels:
+      app: paused-and-scaled-to-zero
+  template:
+    metadata:
+      labels:
+        app: paused-and-scaled-to-zero
+    spec:
+      containers:
+        - name: app
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: completed
+  namespace: doctor-healthy
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: version
+          image: __COREDNS_IMAGE__
+          imagePullPolicy: Never
+          args: ['-version']
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: doctor-fixture-wait
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: expected-storage-wait
+  namespace: doctor-healthy
+spec:
+  storageClassName: doctor-fixture-wait
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: missing-config
+  namespace: doctor-broken
+spec:
+  containers:
+    - name: app
+      image: __COREDNS_IMAGE__
+      imagePullPolicy: Never
+      env:
+        - name: REQUIRED_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: fixture-absent-secret
+              key: token
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-image
+  namespace: doctor-broken
+spec:
+  containers:
+    - name: app
+      image: localhost:1/kubedoctor-fixture-image:v1
+      imagePullPolicy: Always
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: unschedulable
+  namespace: doctor-broken
+spec:
+  nodeSelector:
+    kubedoctor.test/constraint: no-node-has-this-value
+  containers:
+    - name: app
+      image: __COREDNS_IMAGE__
+      imagePullPolicy: Never
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: empty-selector
+  namespace: doctor-broken
+spec:
+  selector:
+    app: no-pod-has-this-label
+  ports:
+    - name: health
+      port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: missing-backend
+  namespace: doctor-broken
+spec:
+  defaultBackend:
+    service:
+      name: fixture-absent-service
+      port:
+        number: 80
