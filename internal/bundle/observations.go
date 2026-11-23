@@ -422,20 +422,21 @@ func (v volume) observation() core.Volume {
 }
 
 type pod struct {
-	Identity     identity          `json:"identity"`
-	HostNode     string            `json:"host_node,omitempty"`
-	HostNetwork  bool              `json:"host_network,omitempty"`
-	Gated        bool              `json:"scheduling_gated,omitempty"`
-	Resources    *requirements     `json:"pod_resources,omitempty"`
-	Containers   []container       `json:"containers,omitempty"`
-	Init         []container       `json:"init_containers,omitempty"`
-	Volumes      []volume          `json:"volumes,omitempty"`
-	Phase        string            `json:"phase,omitempty"`
-	Reason       string            `json:"reason,omitempty"`
-	StartedAt    *time.Time        `json:"started_at,omitempty"`
-	Conditions   []condition       `json:"conditions,omitempty"`
-	Statuses     []containerStatus `json:"container_statuses,omitempty"`
-	InitStatuses []containerStatus `json:"init_statuses,omitempty"`
+	Identity      identity          `json:"identity"`
+	HostNode      string            `json:"host_node,omitempty"`
+	HostNetwork   bool              `json:"host_network,omitempty"`
+	Gated         bool              `json:"scheduling_gated,omitempty"`
+	Resources     *requirements     `json:"pod_resources,omitempty"`
+	Containers    []container       `json:"containers,omitempty"`
+	Init          []container       `json:"init_containers,omitempty"`
+	Volumes       []volume          `json:"volumes,omitempty"`
+	Phase         string            `json:"phase,omitempty"`
+	Reason        string            `json:"reason,omitempty"`
+	StartedAt     *time.Time        `json:"started_at,omitempty"`
+	Conditions    []condition       `json:"conditions,omitempty"`
+	Statuses      []containerStatus `json:"container_statuses,omitempty"`
+	InitStatuses  []containerStatus `json:"init_statuses,omitempty"`
+	DNSNamedPorts []dnsNamedPort    `json:"dns_named_ports,omitempty"`
 }
 
 func describePod(p core.Pod) pod {

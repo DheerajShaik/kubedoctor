@@ -56,7 +56,7 @@ func validateEvidence(p *payload) error {
 	claims := make(map[string]bool)
 	referenced := make(map[configMapKey]map[string]bool)
 	for _, pod := range e.Pods {
-		if !namespace(pod.Identity) || !validPod(pod) {
+		if !namespace(pod.Identity) || !validPod(pod) || pod.DNSNamedPorts != nil {
 			return ErrFormat
 		}
 		if shouldContainNode(pod) {
@@ -120,10 +120,12 @@ func validateEvidence(p *payload) error {
 		!all(e.Metrics, func(r currentUsage) bool { return namespaceInScope(p.Scope, r.Namespace) && validMetrics(r) }) {
 		return ErrFormat
 	}
+	dnsPorts := namedDNSPortRequirements(e.DNSServices)
 	for _, pod := range e.DNSPods {
 		if !system(pod.Identity) || !podsAreDNSInfrastructure(pod.Identity.Namespace, pod.Identity.Labels) ||
 			!validPod(pod) || pod.HostNode != "" || len(pod.Containers) != 0 || len(pod.Init) != 0 ||
-			len(pod.Volumes) != 0 || len(pod.Statuses) != 0 || len(pod.InitStatuses) != 0 || pod.Resources != nil {
+			len(pod.Volumes) != 0 || len(pod.Statuses) != 0 || len(pod.InitStatuses) != 0 || pod.Resources != nil ||
+			!validDNSNamedPorts(pod, dnsPorts) {
 			return ErrFormat
 		}
 	}

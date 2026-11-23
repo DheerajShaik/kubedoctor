@@ -345,7 +345,7 @@ func (p *payload) observations() model.Snapshot {
 		StorageClasses: mapItems(e.StorageClasses, storageClass.observation), Services: mapItems(e.Services, service.observation),
 		EndpointSlices:  mapItems(e.EndpointSlices, endpointSlice.observation),
 		LegacyEndpoints: mapItems(e.LegacyEndpoints, legacyEndpoints.observation), Ingresses: mapItems(e.Ingresses, ingress.observation),
-		DNSPods: mapItems(e.DNSPods, pod.observation), DNSServices: mapItems(e.DNSServices, service.observation),
+		DNSPods: mapItems(e.DNSPods, pod.dnsObservation), DNSServices: mapItems(e.DNSServices, service.observation),
 		DNSConfig:          mapItems(e.DNSConfig, dnsConfig.observation),
 		DNSEndpointSlices:  mapItems(e.DNSEndpointSlices, endpointSlice.observation),
 		DNSLegacyEndpoints: mapItems(e.DNSLegacyEndpoints, legacyEndpoints.observation),

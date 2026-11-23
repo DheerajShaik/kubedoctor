@@ -118,25 +118,65 @@ func projectPod(pod core.Pod) core.Pod {
 			out.Spec.Volumes = append(out.Spec.Volumes, projected)
 		}
 	}
-	switch pod.Status.Phase {
-	case core.PodPending, core.PodRunning, core.PodSucceeded, core.PodFailed, core.PodUnknown:
-		out.Status.Phase = pod.Status.Phase
+	out.Status = projectPodConditions(pod.Status)
+	out.Status.ContainerStatuses = projectContainerStatuses(pod.Status.ContainerStatuses)
+	out.Status.InitContainerStatuses = projectContainerStatuses(pod.Status.InitContainerStatuses)
+	return out
+}
+
+func projectDNSPod(pod core.Pod) core.Pod {
+	out := core.Pod{ObjectMeta: asIdentity(pod.ObjectMeta), Status: projectPodConditions(pod.Status)}
+	out.Labels = labels(pod.Labels)
+	out.Spec.Containers = projectDNSPortDeclarations(pod.Spec.Containers, false)
+	out.Spec.InitContainers = projectDNSPortDeclarations(pod.Spec.InitContainers, true)
+	return out
+}
+
+func projectDNSPortDeclarations(containers []core.Container, init bool) []core.Container {
+	var declarations core.Container
+	for _, container := range containers {
+		if init && (container.RestartPolicy == nil || *container.RestartPolicy != core.ContainerRestartPolicyAlways) {
+			continue
+		}
+		for _, port := range container.Ports {
+			protocol := projectProtocol(port.Protocol)
+			if len(validation.IsValidPortName(port.Name)) != 0 || port.ContainerPort < 1 || port.ContainerPort > 65535 ||
+				(port.Protocol != "" && protocol == "") {
+				continue
+			}
+			declarations.Ports = append(declarations.Ports, core.ContainerPort{
+				Name: port.Name, ContainerPort: port.ContainerPort, Protocol: protocol,
+			})
+		}
 	}
-	out.Status.Reason = allowed(pod.Status.Reason, "Evicted", "NodeLost", "DeadlineExceeded",
+	if len(declarations.Ports) == 0 {
+		return nil
+	}
+	if init {
+		declarations.RestartPolicy = new(core.ContainerRestartPolicyAlways)
+	}
+	return []core.Container{declarations}
+}
+
+func projectPodConditions(status core.PodStatus) core.PodStatus {
+	var out core.PodStatus
+	switch status.Phase {
+	case core.PodPending, core.PodRunning, core.PodSucceeded, core.PodFailed, core.PodUnknown:
+		out.Phase = status.Phase
+	}
+	out.Reason = allowed(status.Reason, "Evicted", "NodeLost", "DeadlineExceeded",
 		"Shutdown", "ContainerStatusUnknown", "UnexpectedAdmissionError")
-	out.Status.StartTime = pod.Status.StartTime
-	for _, condition := range pod.Status.Conditions {
+	out.StartTime = status.StartTime
+	for _, condition := range status.Conditions {
 		switch condition.Type {
 		case core.PodScheduled, core.PodReady, core.ContainersReady, core.PodInitialized:
-			out.Status.Conditions = append(out.Status.Conditions, core.PodCondition{
+			out.Conditions = append(out.Conditions, core.PodCondition{
 				Type: condition.Type, Status: projectStatus(condition.Status),
 				Reason:             allowed(condition.Reason, core.PodReasonUnschedulable, "SchedulingGated", "ContainersNotReady", "PodCompleted"),
 				LastTransitionTime: condition.LastTransitionTime,
 			})
 		}
 	}
-	out.Status.ContainerStatuses = projectContainerStatuses(pod.Status.ContainerStatuses)
-	out.Status.InitContainerStatuses = projectContainerStatuses(pod.Status.InitContainerStatuses)
 	return out
 }
 

@@ -151,7 +151,7 @@ func namedObservation(source model.Source, required bool, object string, err err
 func (c *Collector) collectDNSPods(ctx context.Context, s *model.Snapshot) []model.SourceResult {
 	var result model.SourceResult
 	s.DNSPods, result = readPages(ctx, model.SourceDNSPods, false, metav1.ListOptions{LabelSelector: dnsPodSelector},
-		c.core.Pods(dnsNamespace).List, func(l *core.PodList) []core.Pod { return l.Items }, include(projectPod))
+		c.core.Pods(dnsNamespace).List, func(l *core.PodList) []core.Pod { return l.Items }, include(projectDNSPod))
 	return []model.SourceResult{result}
 }
 

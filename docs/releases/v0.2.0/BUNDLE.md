@@ -43,4 +43,6 @@ A new bundle is saved with restrictive permissions where supported (0600 on Unix
 
 Excluded data includes Secret objects, logs, raw Kubernetes resources, message bodies, commands, arguments, runtime container IDs, raw IP addresses, unrelated annotations, literal environment/configuration values, and unreferenced ConfigMap identities and keys. Pod DNS supplements are restricted to conventional DNS evidence and namespace-specific node-local dependencies. ConfigMap binary-vs-text membership stays distinct because rules rely on it.
 
+For a named target port on the conventional `kube-dns` Service, a selected DNS Pod may retain `dns_named_ports`. Each entry records the declared port name, number, effective protocol and application or restartable-init role. Import checks that the name and protocol correspond to the captured Service target. An older bundle without these optional observations can still be replayed. Its named-target repair remains unverified when a declaration is needed.
+
 Bundles contain internal topology, resource identities, relevant key names, and a possible configured dashboard identity. Deterministic fingerprints preserve relationships and can reveal equality or guessable labels. Handle a bundle as potentially sensitive. Never publish production evidence in an issue or review.

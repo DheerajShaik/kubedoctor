@@ -59,8 +59,10 @@ func (e *evidence) minimize(scope model.Scope) {
 		pod.Identity.Labels = relevantLabels(pod.Identity.Labels, needed[pod.Identity.Namespace])
 		rememberKeys(configKeys, *pod)
 	}
+	dnsPorts := namedDNSPortRequirements(e.DNSServices)
 	for i := range e.DNSPods {
 		pod := &e.DNSPods[i]
+		pod.DNSNamedPorts = retainDNSNamedPorts(*pod, dnsPorts)
 		pod.Identity.Labels = relevantLabels(pod.Identity.Labels, needed[pod.Identity.Namespace])
 		pod.HostNode, pod.Resources = "", nil
 		pod.Containers, pod.Init, pod.Volumes = nil, nil, nil
