@@ -92,20 +92,26 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: go.mod
-      - name: Test generated reports in the runner browser
+      - name: Install pinned browser test dependencies
+        timeout-minutes: 2
         shell: bash
         run: |
           python3 -m venv "$RUNNER_TEMP/kubedoctor-browser-venv"
-          "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" -m pip install playwright==1.62.0
-          chromium=$(command -v google-chrome)
-          "$chromium" --version
-          if ! command -v pdftotext >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y poppler-utils
-          fi
+          "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" -m pip install --timeout 15 --retries 2 \
+            playwright==1.62.0 pypdf==7.1.1
+          google-chrome --version
+      - name: Generate the browser fixture
+        timeout-minutes: 6
+        shell: bash
+        run: |
           mkdir -p "$RUNNER_TEMP/browser"
           KUBEDOCTOR_HTML_TEST_OUTPUT="$RUNNER_TEMP/browser" go test -count=1 \
             -run '^TestRenderedReportAndBrowserFixture$' ./internal/htmlreport
+      - name: Test generated reports in the runner browser
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          chromium=$(command -v google-chrome)
           "$RUNNER_TEMP/kubedoctor-browser-venv/bin/python" test/browser/offline.py "$RUNNER_TEMP/browser/browser.html" \
             --comparison docs/releases/v0.2.0/examples/comparison.html --chromium "$chromium" \
             --output "$RUNNER_TEMP/browser" --example-dir docs/releases/v0.2.0/examples

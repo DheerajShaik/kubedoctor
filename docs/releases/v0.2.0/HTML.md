@@ -8,7 +8,7 @@ Go's html/template escapes report data. The inline stylesheet and digest-authori
 
 ## Reproduce browser validation
 
-The harness uses Chromium, Python Playwright and pdftotext. Use a fresh output directory.
+The harness uses Chromium and Python Playwright 1.62.0. CI installs pypdf 7.1.1 to read Chromium's printed PDF. A local run can use pdftotext when pypdf is absent. Use a fresh output directory.
 
 ```sh
 mkdir -p /tmp/kubedoctor-browser

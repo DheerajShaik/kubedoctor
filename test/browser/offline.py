@@ -7,6 +7,16 @@ import subprocess
 from playwright.sync_api import expect, sync_playwright
 
 
+def printed_text(pdf):
+    try:
+        from pypdf import PdfReader
+    except ModuleNotFoundError as err:
+        if err.name != "pypdf":
+            raise
+        return subprocess.check_output(["pdftotext", str(pdf), "-"], text=True, timeout=20)
+    return "\n".join(page.extract_text() for page in PdfReader(pdf).pages)
+
+
 def verify(args):
     dest = Path(args.output).resolve()
     dest.mkdir(parents=True, exist_ok=True)
@@ -50,7 +60,7 @@ def verify(args):
         assert not page.locator("#filters").is_visible()
         assert page.locator("[data-finding]:visible").count() == 2
         page.pdf(path=dest / "print.pdf", format="A4")
-        paper = subprocess.check_output(["pdftotext", str(dest / "print.pdf"), "-"], text=True)
+        paper = printed_text(dest / "print.pdf")
         for expected in ["quoted & observed", "Collection coverage", "Image pull is waiting", "CPU request unspecified"]:
             assert expected in paper, (expected, paper)
         static = browser.new_context(java_script_enabled=False, offline=True)
