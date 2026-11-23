@@ -102,7 +102,7 @@ func validateEvidence(p *payload) error {
 		}
 	}
 	if !all(e.ReplicaSets, func(r replicaSet) bool {
-		return namespace(r.Identity)
+		return namespace(r.Identity) && r.ObservedGeneration >= 0 && r.Ready >= 0 && (r.Desired == nil || *r.Desired >= 0)
 	}) || !all(e.Deployments, func(r deployment) bool {
 		return namespace(r.Identity) && validLabels(r.TemplateLabels) && validConditions(r.Conditions)
 	}) || !all(e.DaemonSets, func(r daemonSet) bool {

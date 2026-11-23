@@ -313,6 +313,8 @@ func projectReplicaSet(value apps.ReplicaSet) apps.ReplicaSet {
 	out.Spec.Replicas = value.Spec.Replicas
 	out.Spec.Template.Labels = labels(value.Spec.Template.Labels)
 	out.Spec.Selector = projectSelector(value.Spec.Selector)
+	out.Status.ObservedGeneration = value.Status.ObservedGeneration
+	out.Status.ReadyReplicas = value.Status.ReadyReplicas
 	return out
 }
 

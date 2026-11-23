@@ -538,17 +538,26 @@ func (c storageClass) observation() storage.StorageClass {
 }
 
 type replicaSet struct {
-	Identity identity `json:"identity"`
-	Desired  *int32   `json:"desired,omitempty"`
+	Identity           identity `json:"identity"`
+	Desired            *int32   `json:"desired,omitempty"`
+	ObservedGeneration int64    `json:"observed_generation,omitempty"`
+	Ready              int32    `json:"ready,omitempty"`
 }
 
 func describeReplicaSet(r apps.ReplicaSet) replicaSet {
-	return replicaSet{Identity: describe(r.ObjectMeta, false), Desired: r.Spec.Replicas}
+	return replicaSet{
+		Identity:           describe(r.ObjectMeta, false),
+		Desired:            r.Spec.Replicas,
+		ObservedGeneration: r.Status.ObservedGeneration,
+		Ready:              r.Status.ReadyReplicas,
+	}
 }
 
 func (r replicaSet) observation() apps.ReplicaSet {
 	out := apps.ReplicaSet{ObjectMeta: r.Identity.metadata()}
 	out.Spec.Replicas = r.Desired
+	out.Status.ObservedGeneration = r.ObservedGeneration
+	out.Status.ReadyReplicas = r.Ready
 	return out
 }
 

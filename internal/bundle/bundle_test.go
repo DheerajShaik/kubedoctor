@@ -363,6 +363,9 @@ func TestDecodeRejectsInvalidUntrustedBundles(t *testing.T) {
 		{"wrong scope provenance", rewritePayload(t, b, func(p *payload) {
 			p.Scope.Kind, p.Scope.Namespace = model.ClusterScope, ""
 		}), ErrFormat},
+		{"invalid ReplicaSet readiness", rewritePayload(t, b, func(p *payload) {
+			p.Evidence.ReplicaSets[0].Ready = -1
+		}), ErrFormat},
 		{"oversized numeric amplification", rewritePayload(t, b, func(p *payload) {
 			p.Evidence.EndpointSlices[0].Endpoints[0].AddressCount = 2000000
 		}), ErrFormat},

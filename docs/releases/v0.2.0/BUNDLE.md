@@ -34,7 +34,7 @@ A new bundle is saved with restrictive permissions where supported (0600 on Unix
 | Evidence | Retained |
 | --- | --- |
 | Identities and relationships | Observed Kubernetes names, kinds, UIDs, relevant ownership, namespace, lifecycle/generation metadata, hosting nodes, storage references, Service/backends, typed Ingress references, and controller/disruption/autoscaling evidence. |
-| Workloads | Relevant status, conditions, recognized reasons, timestamps, restart/termination state, port declarations, compute requests and limits, referenced PVCs, configuration object names and referenced keys, and coarse probe classifications. |
+| Workloads | Relevant status, conditions, recognized reasons, timestamps, restart/termination state, port declarations, compute requests and limits, referenced PVCs, configuration object names and referenced keys, and coarse probe classifications. ReplicaSet desired and ready counts and the last observed generation support workload comparison. |
 | Events | A reviewed classification, involved resource identity, observation time and time basis, count and optional structured reference or admission/probe evidence. |
 | Networking | Service port and EndpointSlice conditions and target identities, peer/port rule shape, named policy ports, conventional DNS readiness and the presence of the conventional configuration key. |
 | Labels | Keys used in supported matching and only corresponding values. Values use consistent domain-separated fingerprints to preserve selector equality. The conventional DNS selector uses its well-known literal. |
