@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-BdsDlq/q0r5Drl1Wyad5669jHl+ObfzFXUvwnwKVqxc='; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer"><title>Capture comparison · KubeDoctor</title><style>:root{color-scheme:light;--ink:#192b3a;--muted:#485c66;--paper:#fbfcfa;--line:#cbd4cf;--accent:#125957;--dark:#132d39;--alert:#833531}
+*{box-sizing:border-box}html{scroll-behavior:auto}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 "Atkinson Hyperlegible Next","Segoe UI",sans-serif;overflow-wrap:anywhere}
+a{color:#075755;text-underline-offset:3px}a:focus-visible,summary:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #be752d;outline-offset:3px}
+header{background:var(--dark);color:#fff;padding:24px max(5%,calc((100vw - 1120px)/2)) 28px}header p{margin:0 0 8px;font-size:.9rem;color:#cee2dd}h1,h2,h3{line-height:1.2;margin:0;font-family:"Source Sans 3","Segoe UI",sans-serif}h1{font-size:clamp(2rem,4vw,3.3rem);font-weight:640;letter-spacing:-.035em}h2{font-size:1.55rem}h3{font-size:1.12rem}
+header .scope{margin:10px 0 0;color:#f2f4ef}.wrap{max-width:1184px;padding:0 32px;margin:auto}.nav{border-bottom:1px solid var(--line);background:#f1f5f1}.nav nav{display:flex;gap:8px 24px;flex-wrap:wrap;padding-block:14px}.nav a{font-size:.91rem;font-weight:600}
+section{margin:32px 0 44px;scroll-margin:16px}section>h2{border-bottom:2px solid var(--dark);padding-bottom:9px;margin-bottom:14px}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));border:1px solid var(--line);border-radius:6px;background:white;margin:15px 0;padding:16px 0}.summary div{padding:0 16px}.summary dt{font-size:.86rem;color:var(--muted)}.summary dd{margin:0;font-size:1.65rem;font-weight:650}
+.meta,.quiet,small{color:var(--muted)}.notice{border-left:4px solid #9f6730;background:#faf1df;padding:10px 16px}.notice p{margin:4px 0}.item{margin:12px 0;padding:14px 18px;background:white;border:1px solid var(--line);border-radius:5px}.item h3,.item p{margin:6px 0}.critical{color:#912d31}.warning{color:#7a4a0a}.info{color:var(--accent)}
+.kicker{font-size:.82rem;color:var(--muted)}.kicker strong{text-transform:uppercase;letter-spacing:.04em}.item ul,details ul{margin:.4em 0 .7em;padding-left:1.4em}summary{cursor:pointer;min-height:28px}details>summary{font-weight:600}details:target,.item:target,tr:target{outline:2px solid var(--accent);outline-offset:2px}
+table{border-collapse:collapse;width:100%;margin:10px 0 16px;font-size:.91rem}td,th{text-align:left;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--line)}th{background:#eef2ed;font-weight:620}.scroll{overflow:auto}code{font:0.86em "IBM Plex Mono",Consolas,monospace}
+form{display:flex;align-items:end;flex-wrap:wrap;gap:10px;background:#edf3ef;padding:14px;border-radius:4px}form label{display:grid;gap:3px;font-size:.85rem;font-weight:600;max-width:100%}select,button{font:inherit;color:var(--ink);padding:4px 7px;border:1px solid #8f9e96;border-radius:4px;background:white;max-width:18rem}output{color:var(--muted);font-size:.88rem;padding:4px}ol{padding-left:24px}.times li{padding:6px 0}time{font-variant-numeric:tabular-nums}.chart{display:block;width:100%;max-width:680px;height:86px;background:#eff5f1}.chart line{stroke:#126058;stroke-width:2}.chart circle{fill:#126058}
+[hidden]{display:none!important}.skip{position:absolute;left:-10000px}.skip:focus{left:4px;top:4px;background:white;padding:8px;z-index:1}
+@media(max-width:580px){.wrap{padding:0 15px}section{margin:24px 0}.item{padding:10px 12px}header{padding:20px 15px}.summary{grid-template-columns:repeat(2,1fr);gap:12px 0}select{max-width:100%}}
+@media print{body{background:white;color:black;font-size:10pt}header{background:white;color:black;padding:0}header p,header .scope{color:black}.wrap{max-width:none;padding:0}.nav,form,.skip,.noprint{display:none!important}section{margin:14pt 0}.item{border:0;border-bottom:1px solid #bbb}.item[hidden]{display:block!important}details::details-content{display:contents;content-visibility:visible}summary{list-style:none}h2,h3,summary{break-after:avoid}.scroll{overflow:visible}a{color:black}table{font-size:9pt}.chart{max-width:420px}}
+</style></head>
+<body><a class="skip" href="#main">Skip to report</a>
+<header><p>KubeDoctor</p><h1>Capture comparison</h1>
+
+<p class="scope">2026-11-01 11:00:00 UTC → 2026-11-01 11:10:00 UTC</p></header>
+<div class="nav"><nav class="wrap" aria-label="Report sections"><a href="#summary">Summary</a>
+<a href="#resource-changes">Resources</a><a href="#workload-changes">Workloads</a><a href="#coverage">Coverage</a></nav></div>
+<main id="main" class="wrap">
+
+
+<section id="summary"><h2>Comparison summary</h2><dl class="summary"><div><dt>Resource results</dt><dd>3</dd></div><div><dt>Workload results</dt><dd>3</dd></div><div><dt>Coverage changes</dt><dd>0</dd></div></dl>
+<p><strong>Compatible captures · complete comparison</strong></p><p>Before · namespace example-shop · synthetic-example · rules 1<br>After · namespace example-shop · synthetic-example · rules 1</p>
+</section>
+<section id="resource-changes"><h2>Resource changes</h2><article class="item"><div class="kicker"><strong>resolved</strong> · deployment-rollout</div><h3>Deployment example-shop/checkout</h3><p> · Compatible observations cover the same UID and show current subject evidence without the previously detected condition.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Deployment example-shop/checkout · critical · observed · The Deployment controller reports ProgressDeadlineExceeded</p><dl><dt><code>desired</code></dt><dd>1</dd><dt><code>available</code></dt><dd>0</dd><dt><code>updated</code></dt><dd>1</dd><dt><code>progress_last_updated</code></dt><dd>2026-11-01T10:59:00Z</dd><dt><code>condition_reason</code></dt><dd>ProgressDeadlineExceeded</dd><dt><code>progress_deadline_seconds</code></dt><dd>600</dd></dl><h4>After</h4><p>No matching finding.</p></details></article><article class="item"><div class="kicker"><strong>persistent</strong> · container-resources</div><h3>Pod example-shop/checkout-blue-one</h3><p>application / checkout /  · The same finding condition is observed in both captures.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Pod example-shop/checkout-blue-one · info · observed · The container has unspecified CPU or memory requests or limits</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>cpu_request</code></dt><dd>unset or zero</dd><dt><code>memory_request</code></dt><dd>unset or zero</dd><dt><code>cpu_limit</code></dt><dd>unset or zero</dd><dt><code>memory_limit</code></dt><dd>unset or zero</dd></dl><h4>After</h4><p>Pod example-shop/checkout-blue-one · info · observed · The container has unspecified CPU or memory requests or limits</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>cpu_request</code></dt><dd>unset or zero</dd><dt><code>memory_request</code></dt><dd>unset or zero</dd><dt><code>cpu_limit</code></dt><dd>unset or zero</dd><dt><code>memory_limit</code></dt><dd>unset or zero</dd></dl></details></article><article class="item"><div class="kicker"><strong>resolved</strong> · pod-containers</div><h3>Pod example-shop/checkout-blue-one</h3><p>application / checkout / The container cannot start because image acquisition is failing · Compatible observations cover the same UID and show current subject evidence without the previously detected condition.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Pod example-shop/checkout-blue-one · critical · observed · The container cannot start because image acquisition is failing</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>waiting_reason</code></dt><dd>ImagePullBackOff</dd></dl><h4>After</h4><p>No matching finding.</p></details></article></section>
+<section id="workload-changes"><h2>Workload changes</h2><article class="item"><div class="kicker"><strong>persistent</strong> · container-resources</div><h3>Deployment example-shop/checkout</h3><p>application / checkout /  · The same finding condition is observed in both captures.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Pod example-shop/checkout-blue-one · info · observed · The container has unspecified CPU or memory requests or limits</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>cpu_request</code></dt><dd>unset or zero</dd><dt><code>memory_request</code></dt><dd>unset or zero</dd><dt><code>cpu_limit</code></dt><dd>unset or zero</dd><dt><code>memory_limit</code></dt><dd>unset or zero</dd></dl><h4>After</h4><p>Pod example-shop/checkout-blue-one · info · observed · The container has unspecified CPU or memory requests or limits</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>cpu_request</code></dt><dd>unset or zero</dd><dt><code>memory_request</code></dt><dd>unset or zero</dd><dt><code>cpu_limit</code></dt><dd>unset or zero</dd><dt><code>memory_limit</code></dt><dd>unset or zero</dd></dl></details></article><article class="item"><div class="kicker"><strong>resolved</strong> · deployment-rollout</div><h3>Deployment example-shop/checkout</h3><p> · Compatible observations cover the same UID and show current subject evidence without the previously detected condition.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Deployment example-shop/checkout · critical · observed · The Deployment controller reports ProgressDeadlineExceeded</p><dl><dt><code>desired</code></dt><dd>1</dd><dt><code>available</code></dt><dd>0</dd><dt><code>updated</code></dt><dd>1</dd><dt><code>progress_last_updated</code></dt><dd>2026-11-01T10:59:00Z</dd><dt><code>condition_reason</code></dt><dd>ProgressDeadlineExceeded</dd><dt><code>progress_deadline_seconds</code></dt><dd>600</dd></dl><h4>After</h4><p>No matching finding.</p></details></article><article class="item"><div class="kicker"><strong>resolved</strong> · pod-containers</div><h3>Deployment example-shop/checkout</h3><p>application / checkout / The container cannot start because image acquisition is failing · Compatible observations cover the same UID and show current subject evidence without the previously detected condition.</p><details><summary>Compare evidence</summary><h4>Before</h4><p>Pod example-shop/checkout-blue-one · critical · observed · The container cannot start because image acquisition is failing</p><dl><dt><code>container</code></dt><dd>checkout</dd><dt><code>container_role</code></dt><dd>application</dd><dt><code>waiting_reason</code></dt><dd>ImagePullBackOff</dd></dl><h4>After</h4><p>No matching finding.</p></details></article></section>
+<section id="coverage"><h2>Coverage changes</h2><p>No coverage changes recorded.</p></section>
+</main><script>(() => {
+  "use strict";
+  const form = document.getElementById("filters");
+  if (!form) return;
+  const rows = [...document.querySelectorAll("[data-finding]")];
+  const facets = ["severity", "namespace", "workload", "resource"];
+  for (const key of facets) {
+    const select = form.elements.namedItem(key);
+    const values = [...new Set(rows.map(row => row.dataset[key]).filter(Boolean))].sort();
+    for (const value of values) select.add(new Option(value, value));
+  }
+  function apply() {
+    let count = 0;
+    for (const row of rows) {
+      row.hidden = facets.some(key => {
+        const value = form.elements.namedItem(key).value;
+        return value && value !== row.dataset[key];
+      });
+      if (!row.hidden) count++;
+    }
+    document.getElementById("filter-count").textContent = count + " of " + rows.length + " findings";
+  }
+  form.addEventListener("change", apply);
+  form.addEventListener("reset", () => setTimeout(apply));
+  form.hidden = false;
+  apply();
+  // A finding reached from the relationship or investigation index stays accessible.
+  function revealHash() {
+    const target = document.getElementById(location.hash.slice(1));
+    if (!target) return;
+    const row = target.closest("[data-finding]");
+    if (row && row.hidden) { form.reset(); apply(); }
+    if (target.tagName === "DETAILS") target.open = true;
+  }
+  window.addEventListener("hashchange", revealHash);
+  revealHash();
+})();
+</script></body></html>

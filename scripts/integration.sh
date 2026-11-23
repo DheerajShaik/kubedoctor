@@ -2,11 +2,20 @@
 set -euo pipefail
 
 kubernetes_version=${1:-1.36.4}
+variant=${2:-default}
 case "$kubernetes_version" in
   1.35.8) image=kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 ;;
   1.36.4) image=kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed ;;
   *)
     printf 'Usage: %s <1.35.8|1.36.4>\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+case "$kubernetes_version/$variant" in
+  1.35.8/default|1.36.4/default|1.36.4/nodelocal|1.36.4/cilium) ;;
+  *)
+    printf 'Unsupported integration variant %s for Kubernetes %s.\n' "$variant" "$kubernetes_version" >&2
     exit 2
     ;;
 esac
@@ -21,10 +30,18 @@ cluster="kubedoctor-$(printf '%s' "${test_dir##*.}" | tr '[:upper:]' '[:lower:]'
 context="kind-$cluster"
 export KUBECONFIG="$test_dir/kubeconfig"
 delete_cluster=false
+control_plane_id=
 cleanup() {
   local status=$?
   if "$delete_cluster"; then
-    kind delete cluster --name "$cluster" --kubeconfig "$KUBECONFIG" || status=1
+    local current_id
+    current_id=$(docker inspect --format '{{.Id}}' "$cluster-control-plane" 2>/dev/null || true)
+    if [[ -n "$control_plane_id" && -n "$current_id" && "$current_id" != "$control_plane_id" ]]; then
+      printf 'Disposable node identity changed. Refusing teardown of an unverified cluster.\n' >&2
+      status=1
+    else
+      kind delete cluster --name "$cluster" --kubeconfig "$KUBECONFIG" || status=1
+    fi
   fi
   rm -rf -- "$test_dir"
   exit "$status"
@@ -37,18 +54,49 @@ kube() {
   kubectl --kubeconfig "$KUBECONFIG" --context "$context" --request-timeout=130s "$@"
 }
 
+assert_disposable_cluster() {
+  local identity endpoint
+  identity=$(docker inspect --format '{{.Id}} {{index .Config.Labels "io.x-k8s.kind.cluster"}} {{index .Config.Labels "io.x-k8s.kind.role"}}' "$cluster-control-plane")
+  if [[ "$identity" != "$control_plane_id $cluster control-plane" || -z "$control_plane_id" ]]; then
+    printf 'The control-plane container no longer matches this disposable run.\n' >&2
+    exit 1
+  fi
+  endpoint=$(docker port "$cluster-control-plane" 6443/tcp)
+  if [[ ! "$endpoint" =~ ^127\.0\.0\.1:[0-9]+$ ]] || ! kube config view --minify -o json |
+    jq -e --arg ctx "$context" --arg server "https://$endpoint" \
+      '.["current-context"] == $ctx and .clusters[0].cluster.server == $server' >/dev/null; then
+    printf 'The isolated kubeconfig endpoint does not match the disposable kind node.\n' >&2
+    exit 1
+  fi
+}
+
+mutate() {
+  assert_disposable_cluster
+  kube "$@"
+}
+
+# shellcheck source=scripts/integration-scenarios.sh
+source scripts/integration-scenarios.sh
+
 assert_report() {
   local report=$1
   local predicate=$2
   if ! jq -e "$predicate" "$report" >/dev/null; then
-    jq -c '{scope, complete, findings: [.findings[] | {rule_id, resource, severity, evidence}], collection_errors, checks}' "$report" >&2
+    jq -c '
+      if has("resource_changes") then
+        {compatible, complete, limitations, coverage_changes,
+         resource_changes: [.resource_changes[] | {rule_id, subject, classification}]}
+      else
+        (.report // .) | {scope, complete, collection_errors, checks,
+          findings: [(.findings // [])[] | {rule_id, resource, severity, evidence}]}
+      end' "$report" >&2
     printf 'Report assertion failed: %s\n' "$predicate" >&2
     exit 1
   fi
 }
 
 mkdir "$test_dir/bin"
-go build -trimpath -o "$test_dir/bin/kubectl-doctor" ./cmd/kubectl-doctor
+CGO_ENABLED=0 go build -trimpath -o "$test_dir/bin/kubectl-doctor" ./cmd/kubectl-doctor
 kubectl_path=$(command -v kubectl)
 export PATH="$test_dir/bin:$PATH"
 # Isolate discovery from unrelated kubectl plugins installed on the runner.
@@ -62,7 +110,29 @@ if grep -Fxq "$cluster" <<<"$existing_clusters"; then
   exit 1
 fi
 delete_cluster=true
-kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --wait 180s
+if [[ "$variant" == cilium ]]; then
+  command -v cilium >/dev/null
+  cat >"$test_dir/kind.yaml" <<'EOF'
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "127.0.0.1"
+  disableDefaultCNI: true
+EOF
+  kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --config "$test_dir/kind.yaml"
+else
+  kind create cluster --name "$cluster" --kubeconfig "$KUBECONFIG" --image "$image" --wait 180s
+fi
+control_plane_id=$(docker inspect --format '{{.Id}}' "$cluster-control-plane")
+assert_disposable_cluster
+if [[ "$variant" == cilium ]]; then
+  cilium --kubeconfig "$KUBECONFIG" --context "$context" install --version 1.20.5 \
+    --set ipam.mode=kubernetes --set operator.replicas=1 \
+    --set image.useDigest=true --set image.digest=sha256:aa72499f075ad729947ea91b026218aceba24f1a8e4534bf36b8368c7c561526 \
+    --set operator.image.useDigest=true --set operator.image.genericDigest=sha256:c6e7de6665aa9701db86c4fe46828a75a0d167afe084a9ffb5bce34b2c4fa8c4 \
+    --wait --wait-duration 300s
+  kube -n kube-system rollout status daemonset/cilium --timeout=120s
+fi
 kube version -o json | jq -e --arg version "v$kubernetes_version" \
   '.serverVersion.gitVersion == $version and .clientVersion.gitVersion == $version' >/dev/null
 printf 'Kubernetes server and kubectl are both v%s.\n' "$kubernetes_version"
@@ -74,7 +144,7 @@ if [[ ! "$image_ready" =~ ^registry\.k8s\.io/coredns/coredns[:@][a-zA-Z0-9._:@-]
   printf 'Unexpected CoreDNS fixture image.\n' >&2
   exit 1
 fi
-sed "s|__COREDNS_IMAGE__|$image_ready|g" test/integration/workloads.yaml | kube apply -f -
+sed "s|__COREDNS_IMAGE__|$image_ready|g" test/integration/workloads.yaml | mutate apply -f -
 
 kube -n doctor-healthy rollout status deployment/ready-app --timeout=120s
 kube -n doctor-healthy wait --for=condition=complete job/completed --timeout=120s
@@ -82,11 +152,7 @@ kube -n doctor-broken wait --for=jsonpath='{.status.containerStatuses[0].state.w
 kube -n doctor-broken wait --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=ImagePullBackOff pod/bad-image --timeout=120s
 kube -n doctor-broken wait --for=condition=PodScheduled=false pod/unschedulable --timeout=120s
 
-# The service rule allows a newly created service 60 seconds to converge.
-service_age=$(kube -n doctor-broken get service empty-selector -o json | jq 'now - (.metadata.creationTimestamp | fromdateiso8601) | floor')
-if ((service_age < 65)); then
-  sleep "$((65 - service_age))"
-fi
+wait_service_reconciliation doctor-broken empty-selector
 kube -n doctor-healthy wait --for=jsonpath='{.endpoints[0].conditions.ready}'=true \
   endpointslices -l kubernetes.io/service-name=ready-app --timeout=120s
 
@@ -156,4 +222,11 @@ if grep -Fq 'KUBEDOCTOR_INTEGRATION_CREDENTIAL_SENTINEL' "$test_dir/"{healthy,br
   exit 1
 fi
 
-printf 'Passed live Kubernetes %s integration (healthy, broken, and cluster scans).\n' "$kubernetes_version"
+run_deep_diagnostics
+case "$variant" in
+  nodelocal) run_nodelocal_fixture ;;
+  cilium) run_policy_fixture ;;
+esac
+run_connected_incident
+
+printf 'Passed live Kubernetes %s integration (%s).\n' "$kubernetes_version" "$variant"

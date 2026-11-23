@@ -1,8 +1,5 @@
 # Roadmap
 
-1. Add integration fixtures for additional Kubernetes minors and real-world CNI and DNS deployments. Extend supported environments when fixtures and compatibility evidence are available.
-2. Add cluster-wide HTML reports over the versioned result schema. Keep export filters and sensitive data handling under the same policy as terminal and JSON output.
-3. Add opt-in historical sizing with a real time series source such as Prometheus, a defined window, sufficient sample coverage, explicit aggregation and a documented sizing policy. Current Metrics API samples serve current-usage observations.
-4. Add Grafana links or integration after the time series contract and credential boundary are established.
-5. Expand network diagnosis and resource coverage. Document the boundary between configuration evidence and observed data-plane behavior.
-6. Evaluate optional AI explanations and additional MCP transports after defining privacy controls, cost, and authentication. Keep the diagnostic engine deterministic.
+The [v0.2 release charter](releases/v0.2.0/RELEASE_CHARTER.md) covers evidence capture, offline replay, related investigations, comparison, HTML, historical sizing, Grafana navigation, deeper diagnostics, scoped MCP and an expanded CNI/DNS test matrix. Track delivery and test evidence in [project status](PROJECT_STATUS.md) and the [release acceptance matrix](releases/v0.2.0/ACCEPTANCE.md).
+
+Further releases can extend the tested Kubernetes, CNI and DNS matrix with reproducible scenarios. Optional AI explanations and additional MCP transports would require separate privacy, cost and access decisions.

@@ -15,6 +15,8 @@ KubeDoctor runs one bounded scan against the Kubernetes API and evaluates a mini
 
 The CLI and MCP adapter call the engine. The engine depends on a small collector interface and the rule package. Rules take snapshot and time inputs and have no I/O. New rules add metadata, state the observations and visibility they require, and reuse the report schema. A new source also needs a bounded collection plan and documented RBAC.
 
+The [v0.2 release design](releases/v0.2.0/DESIGN.md) adds a reviewed evidence representation in `internal/bundle`, history capture and pure sizing analysis in `internal/history`, relationship building and comparison in `internal/investigation`, and a standalone renderer in `internal/htmlreport`. Offline commands load a bundle directly and never configure Kubernetes clients. See the [bundle contract](releases/v0.2.0/BUNDLE.md) and [investigation and comparison contract](releases/v0.2.0/INVESTIGATION.md).
+
 ## Collection and visibility
 
 Resolve the requested context without updating kubeconfig. Use the chosen context, namespace, and scan time consistently across collection and analysis. A namespace request enumerates namespaced resources only in its selected namespace. It can GET nodes hosting its pods and storage classes named by its PVCs. DNS collection reads the conventional DNS Service and label-selected workloads in the system namespace. Report unresolved dependencies and permission failures. The cluster command explicitly allows all-namespace resource collection and node inventory.

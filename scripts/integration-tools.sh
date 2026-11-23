@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  printf 'Usage: %s <1.35.8|1.36.4> <tool-directory>\n' "$0" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  printf 'Usage: %s <1.35.8|1.36.4> <tool-directory> [cilium]\n' "$0" >&2
   exit 2
 fi
 
 kubernetes_version=$1
+variant=${3:-default}
+if [[ $variant != default && ( $variant != cilium || $kubernetes_version != 1.36.4 ) ]]; then
+  printf 'The optional cilium variant is supported with Kubernetes 1.36.4.\n' >&2
+  exit 2
+fi
 mkdir -p "$2"
 tool_dir=$(cd "$2" && pwd)
 platform="$(uname -s)/$(uname -m)"
@@ -41,3 +46,19 @@ install -m 0755 "$download_dir/kubectl" "$tool_dir/kubectl"
 GOBIN="$tool_dir" go install sigs.k8s.io/kind@v0.33.0
 "$tool_dir/kind" version
 "$tool_dir/kubectl" version --client
+
+if [[ $variant == cilium ]]; then
+  cilium_version=v0.20.3
+  case "$architecture" in
+    amd64) cilium_sha256=b987ad0d195310d3fc96553aa7bcd41d1e97b64713ecdfee3eb48dd27e1ec7d7 ;;
+    arm64) cilium_sha256=fa1bd66b407ec205e88746fc0b17590a247f255bf71bb9dfb0008b14d158f68d ;;
+  esac
+  archive="$download_dir/cilium.tar.gz"
+  curl --fail --silent --show-error --location --retry 2 --max-time 90 \
+    -o "$archive" \
+    "https://github.com/cilium/cilium-cli/releases/download/$cilium_version/cilium-linux-$architecture.tar.gz"
+  printf '%s  %s\n' "$cilium_sha256" "$archive" | sha256sum --check
+  tar -xzf "$archive" -C "$download_dir" cilium
+  install -m 0755 "$download_dir/cilium" "$tool_dir/cilium"
+  "$tool_dir/cilium" version --client
+fi
