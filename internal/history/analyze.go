@@ -160,8 +160,13 @@ func advise(s model.Snapshot, h *model.HistoryCapture, index ownerIndex, pod *co
 	if pod != nil {
 		for _, container := range pod.Spec.Containers {
 			if container.Name == target.Container {
-				result.CurrentRequest = resourceAmount(container.Resources.Requests, resource)
-				result.CurrentLimit = resourceAmount(container.Resources.Limits, resource)
+				var validRequest, validLimit bool
+				result.CurrentRequest, validRequest = resourceAmount(container.Resources.Requests, resource)
+				result.CurrentLimit, validLimit = resourceAmount(container.Resources.Limits, resource)
+				if !validRequest || !validLimit {
+					result.Reason = "A captured resource quantity is outside the sizing policy's numeric bounds."
+					return result
+				}
 				break
 			}
 		}
@@ -177,6 +182,10 @@ func advise(s model.Snapshot, h *model.HistoryCapture, index ownerIndex, pod *co
 	} else {
 		candidate = math.Max(mebibyte, math.Ceil(math.Max(*metric.P95*1.30, *metric.Peak*1.10)/mebibyte)*mebibyte)
 		result.Reason = "Memory request candidate is the greater of 130% of observed P95 and 110% of observed peak, rounded up to a MiB."
+	}
+	if candidate > maxRawValue {
+		result.Reason = "The calculated request is outside the sizing policy's numeric bounds."
+		return result
 	}
 	if result.CurrentLimit != nil && *result.CurrentLimit > 0 {
 		limit := *result.CurrentLimit
@@ -212,9 +221,12 @@ func sizingUncertainty(s model.Snapshot, h *model.HistoryCapture, index ownerInd
 	case s.Coverage(model.SourceHPAs) != model.Complete:
 		return "HPA inventory is incomplete. Changing a request can change utilization-based scaling."
 	}
-	if resources := pod.Spec.Resources; resources != nil &&
-		(resourceAmount(resources.Requests, resource) != nil || resourceAmount(resources.Limits, resource) != nil) {
-		return "Pod-level resources are configured for this resource. Per-container sizing does not model that shared budget."
+	if resources := pod.Spec.Resources; resources != nil {
+		_, request := resources.Requests[resource]
+		_, limit := resources.Limits[resource]
+		if request || limit {
+			return "Pod-level resources are configured for this resource. Per-container sizing does not model that shared budget."
+		}
 	}
 	at := containerStatus(pod, target.Container)
 	if at < 0 {
@@ -254,16 +266,19 @@ func sizingUncertainty(s model.Snapshot, h *model.HistoryCapture, index ownerInd
 	return ""
 }
 
-func resourceAmount(list core.ResourceList, resource core.ResourceName) *float64 {
+func resourceAmount(list core.ResourceList, resource core.ResourceName) (*float64, bool) {
 	value, found := list[resource]
 	if !found {
-		return nil
+		return nil, true
 	}
 	amount := value.AsApproximateFloat64()
 	if resource == core.ResourceCPU {
 		amount *= 1_000
 	}
-	return optionalNumber(amount)
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount < 0 || amount > maxRawValue {
+		return nil, false
+	}
+	return optionalNumber(amount), true
 }
 
 func optionalNumber(value float64) *float64 { return &value }

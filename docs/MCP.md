@@ -52,7 +52,7 @@ kubectl doctor mcp serve --stdio --context staging --allow-namespace payments \
   --allow-bundle before.json --allow-bundle after.json
 ```
 
-`--allow-bundle` takes a plain file basename. Imports are opened relative to the authorized directory and restricted to regular files. Symlinks and Windows reparse points are rejected. Bundle decoding validates normalized evidence and the scope of supported dependencies before registration. The artifact context must match the startup context, and the scope must be authorized. A failed requested import prevents startup.
+`--allow-bundle` takes a plain file basename using ASCII letters, digits, periods, underscores or hyphens. Imports are opened relative to the authorized directory and restricted to regular files. Symlinks and Windows reparse points are rejected. Bundle decoding validates normalized evidence and the scope of supported dependencies before registration. The artifact context must match the startup context, and the scope must be authorized. A failed requested import prevents startup. [Traversal-resistant file APIs](https://go.dev/blog/osroot)
 
 For an additional provenance constraint, pass `--artifact-cluster-id DIGEST` using the lowercase SHA-256 value reported by `kubectl doctor inspect`. It applies to both imported and new session artifacts. Namespace captures can carry a digest bound to that namespace identity. Cluster captures require the cluster provenance method when using a digest pin. Context labels and unkeyed integrity digests describe evidence and do not authenticate its producer. Use a trusted artifact directory and delegate only captures the client should see.
 

@@ -21,6 +21,7 @@ type HistoryReason string
 
 const (
 	HistoryNoTargets        HistoryReason = "no_eligible_targets"
+	HistoryRuntimeUnknown   HistoryReason = "runtime_identity_unobserved"
 	HistoryTargetsLimited   HistoryReason = "target_budget_exceeded"
 	HistoryRequestFailed    HistoryReason = "request_failed"
 	HistoryRequestDenied    HistoryReason = "request_denied"

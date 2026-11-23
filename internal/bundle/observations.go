@@ -14,6 +14,7 @@ import (
 
 type owner struct {
 	Kind       string `json:"kind"`
+	APIVersion string `json:"api_version,omitempty"`
 	Name       string `json:"name"`
 	UID        string `json:"uid,omitempty"`
 	Controller *bool  `json:"controller,omitempty"`
@@ -35,7 +36,7 @@ func describe(meta metav1.ObjectMeta, retainLabels bool) identity {
 		Name: meta.Name, Namespace: meta.Namespace, UID: string(meta.UID), Generation: meta.Generation,
 		CreatedAt: timestamp(meta.CreationTimestamp.Time),
 		Owners: mapItems(meta.OwnerReferences, func(ref metav1.OwnerReference) owner {
-			return owner{Kind: ref.Kind, Name: ref.Name, UID: string(ref.UID), Controller: ref.Controller}
+			return owner{Kind: ref.Kind, APIVersion: safeOwnerVersion(ref), Name: ref.Name, UID: string(ref.UID), Controller: ref.Controller}
 		}),
 	}
 	if meta.DeletionTimestamp != nil {
@@ -52,13 +53,31 @@ func (i identity) metadata() metav1.ObjectMeta {
 		Name: i.Name, Namespace: i.Namespace, UID: types.UID(i.UID), Generation: i.Generation,
 		CreationTimestamp: metaTime(i.CreatedAt), Labels: i.Labels,
 		OwnerReferences: mapItems(i.Owners, func(ref owner) metav1.OwnerReference {
-			return metav1.OwnerReference{Kind: ref.Kind, Name: ref.Name, UID: types.UID(ref.UID), Controller: ref.Controller}
+			return metav1.OwnerReference{Kind: ref.Kind, APIVersion: ref.APIVersion, Name: ref.Name, UID: types.UID(ref.UID), Controller: ref.Controller}
 		}),
 	}
 	if i.DeletedAt != nil {
 		m.DeletionTimestamp = new(metaTime(i.DeletedAt))
 	}
 	return m
+}
+
+func safeOwnerVersion(ref metav1.OwnerReference) string {
+	switch ref.Kind {
+	case "Deployment", "DaemonSet", "ReplicaSet", "StatefulSet":
+		if ref.APIVersion == "apps/v1" {
+			return "apps/v1"
+		}
+	case "Job", "CronJob":
+		if ref.APIVersion == "batch/v1" {
+			return "batch/v1"
+		}
+	case "Service":
+		if ref.APIVersion == "v1" {
+			return "v1"
+		}
+	}
+	return ""
 }
 
 type expression struct {
@@ -519,27 +538,23 @@ func (c storageClass) observation() storage.StorageClass {
 }
 
 type replicaSet struct {
-	Identity       identity  `json:"identity"`
-	Desired        *int32    `json:"desired,omitempty"`
-	Selector       *selector `json:"selector,omitempty"`
-	TemplateLabels labelSet  `json:"template_labels,omitempty"`
+	Identity identity `json:"identity"`
+	Desired  *int32   `json:"desired,omitempty"`
 }
 
 func describeReplicaSet(r apps.ReplicaSet) replicaSet {
-	return replicaSet{Identity: describe(r.ObjectMeta, false), Desired: r.Spec.Replicas,
-		Selector: describeSelector(r.Spec.Selector), TemplateLabels: r.Spec.Template.Labels}
+	return replicaSet{Identity: describe(r.ObjectMeta, false), Desired: r.Spec.Replicas}
 }
 
 func (r replicaSet) observation() apps.ReplicaSet {
 	out := apps.ReplicaSet{ObjectMeta: r.Identity.metadata()}
-	out.Spec.Replicas, out.Spec.Selector, out.Spec.Template.Labels = r.Desired, r.Selector.meta(), r.TemplateLabels
+	out.Spec.Replicas = r.Desired
 	return out
 }
 
 type deployment struct {
 	Identity           identity    `json:"identity"`
 	Desired            *int32      `json:"desired,omitempty"`
-	Selector           *selector   `json:"selector,omitempty"`
 	TemplateLabels     labelSet    `json:"template_labels,omitempty"`
 	Paused             bool        `json:"paused,omitempty"`
 	MinReadySeconds    int32       `json:"min_ready_seconds,omitempty"`
@@ -555,7 +570,7 @@ type deployment struct {
 
 func describeDeployment(d apps.Deployment) deployment {
 	return deployment{
-		Identity: describe(d.ObjectMeta, false), Desired: d.Spec.Replicas, Selector: describeSelector(d.Spec.Selector),
+		Identity: describe(d.ObjectMeta, false), Desired: d.Spec.Replicas,
 		TemplateLabels: d.Spec.Template.Labels, Paused: d.Spec.Paused, MinReadySeconds: d.Spec.MinReadySeconds,
 		DeadlineSeconds: d.Spec.ProgressDeadlineSeconds, ObservedGeneration: d.Status.ObservedGeneration,
 		Total: d.Status.Replicas, Updated: d.Status.UpdatedReplicas, Ready: d.Status.ReadyReplicas,
@@ -569,7 +584,7 @@ func describeDeployment(d apps.Deployment) deployment {
 
 func (d deployment) observation() apps.Deployment {
 	out := apps.Deployment{ObjectMeta: d.Identity.metadata()}
-	out.Spec.Replicas, out.Spec.Selector, out.Spec.Template.Labels = d.Desired, d.Selector.meta(), d.TemplateLabels
+	out.Spec.Replicas, out.Spec.Template.Labels = d.Desired, d.TemplateLabels
 	out.Spec.Paused, out.Spec.MinReadySeconds, out.Spec.ProgressDeadlineSeconds = d.Paused, d.MinReadySeconds, d.DeadlineSeconds
 	out.Status.ObservedGeneration, out.Status.Replicas, out.Status.UpdatedReplicas = d.ObservedGeneration, d.Total, d.Updated
 	out.Status.ReadyReplicas, out.Status.AvailableReplicas, out.Status.UnavailableReplicas = d.Ready, d.Available, d.Unavailable
@@ -581,24 +596,23 @@ func (d deployment) observation() apps.Deployment {
 }
 
 type daemonSet struct {
-	Identity           identity  `json:"identity"`
-	Selector           *selector `json:"selector,omitempty"`
-	TemplateLabels     labelSet  `json:"template_labels,omitempty"`
-	MinReadySeconds    int32     `json:"min_ready_seconds,omitempty"`
-	Strategy           string    `json:"strategy,omitempty"`
-	ObservedGeneration int64     `json:"observed_generation,omitempty"`
-	Desired            int32     `json:"desired,omitempty"`
-	Current            int32     `json:"current,omitempty"`
-	Misscheduled       int32     `json:"misscheduled,omitempty"`
-	Updated            int32     `json:"updated,omitempty"`
-	Ready              int32     `json:"ready,omitempty"`
-	Available          int32     `json:"available,omitempty"`
-	Unavailable        int32     `json:"unavailable,omitempty"`
+	Identity           identity `json:"identity"`
+	TemplateLabels     labelSet `json:"template_labels,omitempty"`
+	MinReadySeconds    int32    `json:"min_ready_seconds,omitempty"`
+	Strategy           string   `json:"strategy,omitempty"`
+	ObservedGeneration int64    `json:"observed_generation,omitempty"`
+	Desired            int32    `json:"desired,omitempty"`
+	Current            int32    `json:"current,omitempty"`
+	Misscheduled       int32    `json:"misscheduled,omitempty"`
+	Updated            int32    `json:"updated,omitempty"`
+	Ready              int32    `json:"ready,omitempty"`
+	Available          int32    `json:"available,omitempty"`
+	Unavailable        int32    `json:"unavailable,omitempty"`
 }
 
 func describeDaemonSet(d apps.DaemonSet) daemonSet {
 	return daemonSet{
-		Identity: describe(d.ObjectMeta, false), Selector: describeSelector(d.Spec.Selector), TemplateLabels: d.Spec.Template.Labels,
+		Identity: describe(d.ObjectMeta, false), TemplateLabels: d.Spec.Template.Labels,
 		MinReadySeconds: d.Spec.MinReadySeconds, Strategy: string(d.Spec.UpdateStrategy.Type),
 		ObservedGeneration: d.Status.ObservedGeneration, Desired: d.Status.DesiredNumberScheduled,
 		Current: d.Status.CurrentNumberScheduled, Misscheduled: d.Status.NumberMisscheduled,
@@ -609,7 +623,7 @@ func describeDaemonSet(d apps.DaemonSet) daemonSet {
 
 func (d daemonSet) observation() apps.DaemonSet {
 	out := apps.DaemonSet{ObjectMeta: d.Identity.metadata()}
-	out.Spec.Selector, out.Spec.Template.Labels = d.Selector.meta(), d.TemplateLabels
+	out.Spec.Template.Labels = d.TemplateLabels
 	out.Spec.MinReadySeconds, out.Spec.UpdateStrategy.Type = d.MinReadySeconds, apps.DaemonSetUpdateStrategyType(d.Strategy)
 	out.Status.ObservedGeneration, out.Status.DesiredNumberScheduled = d.ObservedGeneration, d.Desired
 	out.Status.CurrentNumberScheduled, out.Status.NumberMisscheduled = d.Current, d.Misscheduled
@@ -651,6 +665,7 @@ func (e classifiedEvent) observation() model.Event {
 }
 
 type configMap struct {
+	UID       string   `json:"uid,omitempty"`
 	Namespace string   `json:"namespace"`
 	Name      string   `json:"name"`
 	Keys      []string `json:"keys,omitempty"`
@@ -658,11 +673,11 @@ type configMap struct {
 }
 
 func describeConfigMap(c model.ConfigMap) configMap {
-	return configMap{Namespace: c.Namespace, Name: c.Name, Keys: c.Keys, Binary: c.BinaryKeys}
+	return configMap{UID: c.UID, Namespace: c.Namespace, Name: c.Name, Keys: c.Keys, Binary: c.BinaryKeys}
 }
 
 func (c configMap) observation() model.ConfigMap {
-	return model.ConfigMap{Namespace: c.Namespace, Name: c.Name, Keys: c.Keys, BinaryKeys: c.Binary}
+	return model.ConfigMap{UID: c.UID, Namespace: c.Namespace, Name: c.Name, Keys: c.Keys, BinaryKeys: c.Binary}
 }
 
 type currentUsage struct {

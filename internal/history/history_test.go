@@ -159,6 +159,9 @@ func TestSizingSuppressions(t *testing.T) {
 		{"configured CPU limit", func(s *model.Snapshot) {
 			s.Pods[0].Spec.Containers[0].Resources.Limits = core.ResourceList{core.ResourceCPU: resource.MustParse("800m")}
 		}, "hide demand", ""},
+		{"invalid replay quantity", func(s *model.Snapshot) {
+			s.Pods[0].Spec.Containers[0].Resources.Requests[core.ResourceCPU] = resource.MustParse("-1")
+		}, "outside the sizing policy", ""},
 		{"censored memory", func(s *model.Snapshot) {
 			s.Pods[0].Spec.Containers[0].Resources.Limits = core.ResourceList{core.ResourceMemory: resource.MustParse("116Mi")}
 		}, "", "exceeds the configured limit"},
@@ -243,6 +246,11 @@ func TestProviderScopeFailuresAndBudgets(t *testing.T) {
 			before := requests.Load()
 			if got := p.Capture(t.Context(), s); got.Reason != model.HistoryNoTargets || requests.Load() != before {
 				t.Fatalf("out-of-scope operation queried provider: %+v", got)
+			}
+			s.Scope.Namespace = "payments"
+			s.Pods[0].Status.ContainerStatuses[0].ContainerID = ""
+			if got := p.Capture(t.Context(), s); got.Reason != model.HistoryRuntimeUnknown || requests.Load() != before {
+				t.Fatalf("unknown runtime identity resulted in a broader query: %+v", got)
 			}
 		})
 	}

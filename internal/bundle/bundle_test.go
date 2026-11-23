@@ -58,10 +58,9 @@ func sampleSnapshot() model.Snapshot {
 		{Source: model.SourceStorageClasses, Resource: "waiting", StartedAt: now.Add(-time.Second), FinishedAt: now},
 	}
 	pod := core.Pod{ObjectMeta: metadata("web")}
-	pod.Labels = map[string]string{"app": marker, "APP": "a valid case-distinct label value", "unrelated": marker, marker: marker}
-	pod.Labels["APP"] = "case-distinct"
+	pod.Labels = map[string]string{"app": marker, "APP": "case-distinct", "unrelated": marker, marker: marker}
 	pod.Annotations = map[string]string{marker: marker}
-	pod.OwnerReferences = []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "frontend-1", UID: "frontend-1-uid", Controller: new(true)}}
+	pod.OwnerReferences = []metav1.OwnerReference{{Kind: "ReplicaSet", APIVersion: "apps/v1", Name: "frontend-1", UID: "frontend-1-uid", Controller: new(true)}}
 	pod.Spec.NodeName = "hosting"
 	pod.Spec.Containers = []core.Container{{
 		Name: "server", Image: marker, Command: []string{marker}, Args: []string{marker},
@@ -99,12 +98,15 @@ func sampleSnapshot() model.Snapshot {
 		Status: core.NodeStatus{Conditions: []core.NodeCondition{{Type: core.NodeMemoryPressure, Status: core.ConditionTrue,
 			Reason: "KubeletHasInsufficientMemory", Message: marker, LastTransitionTime: before}}}}}
 	s.ReplicaSets = []apps.ReplicaSet{{ObjectMeta: metadata("frontend-1")}}
-	s.ReplicaSets[0].OwnerReferences = []metav1.OwnerReference{{Kind: "Deployment", Name: "frontend", UID: "frontend-uid", Controller: new(true)}}
+	s.ReplicaSets[0].OwnerReferences = []metav1.OwnerReference{{Kind: "Deployment", APIVersion: "apps/v1", Name: "frontend", UID: "frontend-uid", Controller: new(true)}}
 	s.Deployments = []apps.Deployment{{ObjectMeta: metadata("frontend")}}
 	s.Deployments[0].Spec.Replicas = new(int32(1))
 	s.Deployments[0].Spec.Template.Labels = map[string]string{"app": marker}
 	s.DaemonSets = []apps.DaemonSet{{ObjectMeta: metadata("networking")}}
-	s.ConfigMaps = []model.ConfigMap{{Name: "settings", Namespace: "payments", Keys: []string{"flag", marker}, BinaryKeys: []string{"document", marker}}}
+	s.ConfigMaps = []model.ConfigMap{
+		{Name: "settings", Namespace: "payments", Keys: []string{"flag", marker}, BinaryKeys: []string{"document", marker}},
+		{Name: "unreferenced-settings", Namespace: "payments", Keys: []string{"flag"}},
+	}
 	s.PVCs = []core.PersistentVolumeClaim{{ObjectMeta: metadata("db-volume"),
 		Spec:   core.PersistentVolumeClaimSpec{StorageClassName: new("waiting")},
 		Status: core.PersistentVolumeClaimStatus{Phase: core.ClaimPending}}}
@@ -211,7 +213,7 @@ func TestCaptureUsesOnlyReviewedEvidenceAndReplaysLiveReport(t *testing.T) {
 	live := engine.Analyze(sampleSnapshot())
 	_, raw := encodedBundle(t)
 	for _, forbidden := range []string{
-		marker, "UNSAFE_LITERAL", "private.example", "192.0.2.", "containerd://",
+		marker, "UNSAFE_LITERAL", "unreferenced-settings", "private.example", "192.0.2.", "containerd://",
 		"\"apiVersion\"", "\"metadata\"", "\"spec\"", "\"image\"", "\"message\"", "\"annotations\"",
 	} {
 		if bytes.Contains(raw, []byte(forbidden)) {
@@ -333,6 +335,25 @@ func TestDecodeRejectsInvalidUntrustedBundles(t *testing.T) {
 		{"unsupported alias protocol", rewritePayload(t, b, func(p *payload) {
 			p.Evidence.Services[0].Ports[0].Port.Protocol = "internet"
 		}), ErrFormat},
+		{"duplicate observed service", rewritePayload(t, b, func(p *payload) {
+			conflict := p.Evidence.Services[0]
+			conflict.Identity.UID = "competing-uid"
+			p.Evidence.Services = append(p.Evidence.Services, conflict)
+		}), ErrFormat},
+		{"unrelated named visibility", rewritePayload(t, b, func(p *payload) {
+			p.Sources = append(p.Sources, model.SourceResult{Source: model.SourceNodes, Status: model.PermissionDenied, Resource: "unrelated"})
+			p.Stored = engine.Analyze(p.observations())
+		}), ErrFormat},
+		{"unrelated source timing", rewritePayload(t, b, func(p *payload) {
+			p.SourceTimings[1].Resource = "unrelated"
+		}), ErrFormat},
+		{"arbitrary coverage detail", rewritePayload(t, b, func(p *payload) {
+			p.Sources[0].Detail = marker
+			p.Stored = engine.Analyze(p.observations())
+		}), ErrFormat},
+		{"arbitrary reason", rewritePayload(t, b, func(p *payload) {
+			p.Evidence.Events[0].Reason = marker
+		}), ErrFormat},
 		{"wrong scope provenance", rewritePayload(t, b, func(p *payload) {
 			p.Scope.Kind, p.Scope.Namespace = model.ClusterScope, ""
 		}), ErrFormat},
@@ -396,6 +417,66 @@ func TestProtectedSaveAndOpen(t *testing.T) {
 	}
 	if _, err := Open(dir); !errors.Is(err, ErrFormat) {
 		t.Fatalf("bundle open accepted a directory: %v", err)
+	}
+}
+
+func TestHistoryRequiresTheObservedWorkloadChain(t *testing.T) {
+	s := sampleSnapshot()
+	s.FinishedAt = s.CollectedAt.Add(2 * time.Second)
+	s.History = &model.HistoryCapture{
+		SchemaVersion: model.HistorySchemaVersion, Status: model.HistoryComplete,
+		StartedAt: s.CollectedAt.Add(time.Second), FinishedAt: s.FinishedAt,
+		WindowStart: s.CollectedAt.Add(-15 * time.Minute), WindowEnd: s.CollectedAt,
+		StepSeconds: 15, ScrapeSeconds: 15,
+		Targets: []model.HistoryTargetCapture{{
+			Target: model.HistoryTarget{
+				Pod:      model.Identity("Pod", &s.Pods[0]),
+				Workload: model.Identity("Deployment", &s.Deployments[0]), Container: "server",
+			},
+			CPUCounter: model.HistorySeries{Status: model.HistoryComplete},
+			Memory:     model.HistorySeries{Status: model.HistoryComplete},
+		}},
+	}
+	b, err := New(s, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := b.Snapshot()
+	if err != nil || saved.History == nil || len(saved.History.Targets) != 1 ||
+		saved.Pods[0].OwnerReferences[0].APIVersion != "apps/v1" {
+		t.Fatalf("observed history join was not captured: %v", err)
+	}
+	unrelated := rewritePayload(t, b, func(p *payload) {
+		p.Evidence.History.Targets[0].Target.Workload.Name = "elsewhere"
+	})
+	if _, err := Decode(bytes.NewReader(unrelated)); !errors.Is(err, ErrFormat) {
+		t.Fatalf("decoded history attributed to an unrelated workload: %v", err)
+	}
+}
+
+func TestFingerprintShapedLiveValueNeverMasqueradesAsAnotherValue(t *testing.T) {
+	s := sampleSnapshot()
+	s.Pods[0].Labels["app"] = fingerprintLabel("app", "api")
+	s.Services[0].Spec.Selector["app"] = "api"
+	b, err := New(s, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := b.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Pods[0].Labels["app"] == replayed.Services[0].Spec.Selector["app"] {
+		t.Fatal("distinct live labels became equal after export")
+	}
+	s.Services, s.PDBs, s.NetworkPolicies = nil, nil, nil
+	b, err = New(s, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err = b.Snapshot()
+	if err != nil || len(replayed.Pods[0].Labels) != 0 {
+		t.Fatal("labels were exported where no selector uses them")
 	}
 }
 

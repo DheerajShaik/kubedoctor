@@ -367,17 +367,18 @@ func (p pdb) observation() policy.PodDisruptionBudget {
 }
 
 type dnsConfig struct {
+	UID         string `json:"uid,omitempty"`
 	Namespace   string `json:"namespace"`
 	Name        string `json:"name"`
 	HasCorefile bool   `json:"has_corefile"`
 }
 
 func describeDNSConfig(c model.DNSConfig) dnsConfig {
-	return dnsConfig{Namespace: c.Namespace, Name: c.Name, HasCorefile: c.HasCorefile}
+	return dnsConfig{UID: c.UID, Namespace: c.Namespace, Name: c.Name, HasCorefile: c.HasCorefile}
 }
 
 func (c dnsConfig) observation() model.DNSConfig {
-	return model.DNSConfig{Namespace: c.Namespace, Name: c.Name, HasCorefile: c.HasCorefile}
+	return model.DNSConfig{UID: c.UID, Namespace: c.Namespace, Name: c.Name, HasCorefile: c.HasCorefile}
 }
 
 // Verify an endpoint state has an unambiguous normalized time representation.

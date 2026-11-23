@@ -78,7 +78,7 @@ func validOutcome(status model.HistoryStatus, reason model.HistoryReason) bool {
 		return reason == ""
 	case model.HistoryPartial, model.HistoryUnavailable, model.HistoryPermission, model.HistoryFailed, model.HistoryTruncated, model.HistoryInsufficient:
 		switch reason {
-		case model.HistoryNoTargets, model.HistoryTargetsLimited, model.HistoryRequestFailed,
+		case model.HistoryNoTargets, model.HistoryRuntimeUnknown, model.HistoryTargetsLimited, model.HistoryRequestFailed,
 			model.HistoryRequestDenied, model.HistoryRequestTimeout, model.HistoryBadResponse,
 			model.HistoryResponseLimited, model.HistoryResponseWarnings, model.HistoryMetricAbsent,
 			model.HistoryAmbiguousSeries, model.HistoryBadSamples, model.HistorySparseSamples, model.HistoryCounterReset:

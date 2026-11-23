@@ -103,7 +103,7 @@ func boundedSeconds(seconds *int64) bool {
 
 func validBriefConditions(conditions []model.BriefCondition) bool {
 	return len(conditions) <= 64 && all(conditions, func(c model.BriefCondition) bool {
-		return c.Type != "" && simpleToken(c.Type, 64) && simpleToken(c.Reason, 128) &&
+		return validBriefConditionType(c.Type) && validBriefConditionReason(c.Reason) &&
 			oneOf(c.Status, "", "True", "False", "Unknown")
 	})
 }
@@ -130,22 +130,9 @@ func validHistory(p *payload) bool {
 		h.WindowEnd.After(p.EvaluatedAt) {
 		return false
 	}
-	pods := make(map[model.Resource]pod, len(p.Evidence.Pods))
-	for _, pod := range p.Evidence.Pods {
-		id := pod.Identity
-		pods[model.Resource{Kind: "Pod", Namespace: id.Namespace, Name: id.Name, UID: id.UID}] = pod
-	}
-	return all(h.Targets, func(target model.HistoryTargetCapture) bool {
-		pod, found := pods[target.Target.Pod]
-		return found && anyContainerNamed(pod.Containers, target.Target.Container)
-	})
-}
-
-func anyContainerNamed(containers []container, name string) bool {
-	for _, container := range containers {
-		if container.Name == name {
-			return true
-		}
-	}
-	return false
+	return history.ValidateTargetOwners(model.Snapshot{
+		Scope: p.Scope, CollectedAt: p.EvaluatedAt, History: h,
+		Pods:        mapItems(p.Evidence.Pods, pod.observation),
+		ReplicaSets: mapItems(p.Evidence.ReplicaSets, replicaSet.observation),
+	}) == nil
 }

@@ -148,6 +148,7 @@ func linkIncidentEvidence(inv *Investigation) {
 		}
 	}
 	count := 0
+	clipped := false
 	add := func(entryIndex int, members []model.Resource, isRelationship bool) {
 		for _, member := range members {
 			for _, group := range groupsByMember[member] {
@@ -159,6 +160,7 @@ func linkIncidentEvidence(inv *Investigation) {
 					continue
 				}
 				if count >= maxIncidentReferences {
+					clipped = true
 					return
 				}
 				*target = append(*target, entryIndex)
@@ -174,7 +176,7 @@ func linkIncidentEvidence(inv *Investigation) {
 			add(i, []model.Resource{*event.Resource}, false)
 		}
 	}
-	if count == maxIncidentReferences {
+	if clipped {
 		inv.Truncated = true
 		inv.Limitations = append(inv.Limitations, "Incident evidence navigation reached its budget. The underlying findings remain available.")
 	}

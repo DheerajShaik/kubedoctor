@@ -202,7 +202,7 @@ func decodePayload(raw []byte, digest string) (*Bundle, error) {
 	return &Bundle{data: p, encoded: raw, digest: digest}, nil
 }
 
-const envelopePrefix = `{"schema_version":"1","sha256":"`
+const envelopePrefix = `{"schema_version":"` + SchemaVersion + `","sha256":"`
 const envelopeSeparator = `","payload":`
 
 func (b *Bundle) Encode(writer io.Writer) error {
@@ -211,15 +211,21 @@ func (b *Bundle) Encode(writer io.Writer) error {
 	}
 	// Keep the exact payload bytes covered by the digest, including valid
 	// payload whitespace introduced by tools outside KubeDoctor.
-	if _, err := io.WriteString(writer, envelopePrefix+b.digest+envelopeSeparator); err != nil {
+	header := envelopePrefix + b.digest + envelopeSeparator
+	if n, err := io.WriteString(writer, header); err != nil {
 		return err
+	} else if n != len(header) {
+		return io.ErrShortWrite
 	}
 	if n, err := writer.Write(b.encoded); err != nil {
 		return err
 	} else if n != len(b.encoded) {
 		return io.ErrShortWrite
 	}
-	_, err := io.WriteString(writer, "}\n")
+	n, err := io.WriteString(writer, "}\n")
+	if err == nil && n != 2 {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -251,6 +257,9 @@ func (b *Bundle) Save(path string) error {
 }
 
 func (b *Bundle) Inventory() Inventory {
+	if b == nil || b.data == nil {
+		return Inventory{}
+	}
 	p := b.data
 	return Inventory{
 		SchemaVersion: SchemaVersion, AnalyzerVersion: p.AnalyzerVersion, Producer: p.Producer, Integrity: b.digest,

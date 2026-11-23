@@ -8,6 +8,7 @@ import (
 
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	core "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 )
 
 func repairedFixture(beforeReady, afterReady bool) (Investigation, Investigation) {
@@ -221,5 +222,104 @@ func TestComparisonUnrelatedPodReadinessDoesNotRepairController(t *testing.T) {
 	change := pickChange(t, comparison.WorkloadChanges, "configuration-references", "deployment-uid")
 	if comparison.Complete || change.Classification != NoLongerObservable {
 		t.Fatalf("unrelated ready Pod did not prove recovery: %+v", change)
+	}
+}
+
+func TestComparisonServiceRecoveryRequiresSameApplicableBackend(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		modify func(*core.Service, *discovery.EndpointSlice)
+		want   Classification
+	}{
+		{"ready matching published backend", func(*core.Service, *discovery.EndpointSlice) {}, Resolved},
+		{"became ExternalName", func(service *core.Service, _ *discovery.EndpointSlice) {
+			service.Spec.Type = core.ServiceTypeExternalName
+		}, NoLongerObservable},
+		{"became selectorless", func(service *core.Service, _ *discovery.EndpointSlice) { service.Spec.Selector = nil }, NoLongerObservable},
+		{"removed declared port", func(service *core.Service, _ *discovery.EndpointSlice) { service.Spec.Ports[0].Port = 9000 }, NoLongerObservable},
+		{"terminating endpoint only", func(_ *core.Service, slice *discovery.EndpointSlice) {
+			slice.Endpoints[0].Conditions.Terminating = new(true)
+		}, NoLongerObservable},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			service := core.Service{ObjectMeta: fixtureMeta("checkout-service", "service-uid"), Spec: core.ServiceSpec{Selector: map[string]string{"app": "checkout"},
+				Ports: []core.ServicePort{{Name: "http", Port: 80}}}}
+			snapshot, report := fixtureSnapshot(baselineTime, true, "pod-uid-a")
+			snapshot.Services = []core.Service{service}
+			report.Checks = append(report.Checks, model.CheckResult{ID: "service.ports", Status: model.Checked})
+			report.Findings = []model.Finding{{RuleID: "service.ports", Resource: model.Identity("Service", &service), Confidence: model.Observed, Severity: model.Warning,
+				Evidence: []model.Evidence{evidence("service_port", "80"), evidence("port_name", "http"), evidence("protocol", "TCP")}}}
+			before := Build(snapshot, report)
+			snapshot, report = fixtureSnapshot(baselineTime.Add(time.Minute), true, "pod-uid-a")
+			report.Checks = append(report.Checks, model.CheckResult{ID: "service.ports", Status: model.Checked})
+			slice := discovery.EndpointSlice{ObjectMeta: fixtureMeta("checkout-slice", "slice-uid"), AddressType: discovery.AddressTypeIPv4,
+				Endpoints: []discovery.Endpoint{{Addresses: []string{""}, Conditions: discovery.EndpointConditions{Ready: new(true)}}}}
+			slice.Labels[discovery.LabelServiceName] = service.Name
+			slice.OwnerReferences = append(slice.OwnerReferences, owner("Service", &service))
+			scenario.modify(&service, &slice)
+			snapshot.Services, snapshot.EndpointSlices = []core.Service{service}, []discovery.EndpointSlice{slice}
+			result := Compare(before, Build(snapshot, report))
+			if change := pickChange(t, result.ResourceChanges, "service.ports", "service-uid"); change.Classification != scenario.want {
+				t.Fatalf("actual backend continuity not reflected: %+v", change)
+			}
+		})
+	}
+}
+
+func TestComparisonSeparatelyAccountsForRequestedHistory(t *testing.T) {
+	for _, scenario := range []struct {
+		name         string
+		modify       func(*Investigation, *Investigation)
+		wantComplete bool
+		wantLost     int
+	}{
+		{"same assessed targets", func(*Investigation, *Investigation) {}, true, 0},
+		{"subsequent capture omitted history", func(_ *Investigation, after *Investigation) { after.History = nil }, false, 1},
+		{"subsequent provider unavailable", func(_ *Investigation, after *Investigation) {
+			after.History.Status, after.History.Targets = model.HistoryUnavailable, nil
+		}, false, 1},
+		{"same workload name with changed Pod identity", func(_ *Investigation, after *Investigation) { after.History.Targets[0].Target.Pod.UID = "replaced" }, false, 1},
+		{"sparse CPU series", func(_ *Investigation, after *Investigation) {
+			after.History.Status, after.History.Targets[0].CPU.Status = model.HistoryInsufficient, model.HistoryInsufficient
+		}, false, 1},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			before, after := repairedFixture(true, true)
+			for _, inv := range []*Investigation{&before, &after} {
+				inv.History = &model.HistoryReport{SchemaVersion: model.HistorySchemaVersion, Status: model.HistoryComplete,
+					WindowStart: inv.EvaluatedAt.Add(-time.Hour), WindowEnd: inv.EvaluatedAt, Targets: []model.HistoryTargetReport{{
+						Target: model.HistoryTarget{Pod: model.Resource{Kind: "Pod", Namespace: "demo", Name: "checkout-pod", UID: "pod-uid-a"},
+							Workload: model.Resource{Kind: "Deployment", Namespace: "demo", Name: "checkout", UID: "deployment-uid"}, Container: "api"},
+						CPU: model.HistoryMetricReport{Status: model.HistoryComplete}, Memory: model.HistoryMetricReport{Status: model.HistoryComplete},
+					}}}
+			}
+			scenario.modify(&before, &after)
+			result := Compare(before, after)
+			if result.History == nil || result.Complete != scenario.wantComplete || result.History.LostTargets != scenario.wantLost ||
+				(!scenario.wantComplete && ExitCode(result, "") != 2) || len(result.Limitations) == 0 {
+				t.Fatalf("unexpected history comparability: %+v", result)
+			}
+		})
+	}
+}
+
+func TestComparisonBoundClaimUsesAfterPhaseWithoutUnneededStorageClassRead(t *testing.T) {
+	snapshot, report := fixtureSnapshot(baselineTime, true, "pod-uid-a")
+	claim := core.PersistentVolumeClaim{ObjectMeta: fixtureMeta("checkout-data", "claim-uid"), Status: core.PersistentVolumeClaimStatus{Phase: core.ClaimPending}}
+	snapshot.PVCs = []core.PersistentVolumeClaim{claim}
+	report.Findings = []model.Finding{{Resource: model.Identity("PersistentVolumeClaim", &claim), RuleID: "pvc-binding", Severity: model.Warning,
+		Confidence: model.Observed, Evidence: []model.Evidence{evidence("phase", "Pending"), evidence("storage_class", "ssd")}}}
+	report.Checks = append(report.Checks, model.CheckResult{ID: "pvc-binding", Status: model.Checked})
+	snapshot.SourceTimings = append(snapshot.SourceTimings, model.SourceTiming{Source: model.SourceStorageClasses, Resource: "ssd", StartedAt: snapshot.StartedAt, FinishedAt: snapshot.FinishedAt})
+	report.Sources = append(report.Sources, model.SourceResult{Source: model.SourceStorageClasses, Resource: "ssd", Status: model.Complete})
+	before := Build(snapshot, report)
+	snapshot, report = fixtureSnapshot(baselineTime.Add(time.Minute), true, "pod-uid-a")
+	claim.Status.Phase = core.ClaimBound
+	snapshot.PVCs = []core.PersistentVolumeClaim{claim}
+	report.Checks = append(report.Checks, model.CheckResult{ID: "pvc-binding", Status: model.Checked})
+	report.Sources = append(report.Sources, model.SourceResult{Source: model.SourceStorageClasses, Status: model.NotApplicable})
+	comparison := Compare(before, Build(snapshot, report))
+	if change := pickChange(t, comparison.WorkloadChanges, "pvc-binding", "claim-uid"); !comparison.Complete || change.Classification != Resolved {
+		t.Fatalf("same claim's verified Bound phase should establish recovery: %+v", change)
 	}
 }

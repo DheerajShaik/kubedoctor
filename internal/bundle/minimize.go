@@ -77,21 +77,17 @@ func (e *evidence) minimize(scope model.Scope) {
 	for i := range e.PDBs {
 		e.PDBs[i].Selector = fingerprintSelector(e.PDBs[i].Selector)
 	}
-	for i := range e.ReplicaSets {
-		r := &e.ReplicaSets[i]
-		r.Selector = nil
-		r.TemplateLabels = nil
-	}
 	for i := range e.Deployments {
 		d := &e.Deployments[i]
-		d.Selector = nil
 		d.TemplateLabels = relevantLabels(d.TemplateLabels, needed[d.Identity.Namespace])
 	}
 	for i := range e.DaemonSets {
 		d := &e.DaemonSets[i]
-		d.Selector = nil
 		d.TemplateLabels = relevantLabels(d.TemplateLabels, needed[d.Identity.Namespace])
 	}
+	e.ConfigMaps = slices.DeleteFunc(e.ConfigMaps, func(value configMap) bool {
+		return configKeys[configMapKey{value.Namespace, value.Name}] == nil
+	})
 	for i := range e.ConfigMaps {
 		value := &e.ConfigMaps[i]
 		keys := configKeys[configMapKey{value.Namespace, value.Name}]
@@ -121,6 +117,9 @@ func rememberKeys(keys map[configMapKey]map[string]bool, p pod) {
 	for _, containers := range [][]container{p.Containers, p.Init} {
 		for _, c := range containers {
 			for _, ref := range c.Environment {
+				remember(ref)
+			}
+			for _, ref := range c.Imports {
 				remember(ref)
 			}
 		}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -48,9 +49,7 @@ func validateEvidence(p *payload) error {
 	system := func(id identity) bool {
 		return validIdentity(id) && id.Namespace == "kube-system"
 	}
-	if !uniqueIdentities(e.Pods, func(r pod) identity { return r.Identity }) ||
-		!uniqueIdentities(e.Nodes, func(r node) identity { return r.Identity }) ||
-		!uniqueIdentities(e.StorageClasses, func(r storageClass) identity { return r.Identity }) {
+	if !uniqueEvidence(e) {
 		return ErrFormat
 	}
 	hosts := make(map[string]bool)
@@ -84,21 +83,30 @@ func validateEvidence(p *payload) error {
 			return ErrFormat
 		}
 	}
+	for _, source := range p.Sources {
+		if !knownCoverageResource(p.Scope, source.Source, source.Resource, hosts, claims) {
+			return ErrFormat
+		}
+	}
+	for _, timing := range p.SourceTimings {
+		if !knownCoverageResource(p.Scope, timing.Source, timing.Resource, hosts, claims) {
+			return ErrFormat
+		}
+	}
 	for _, cm := range e.ConfigMaps {
 		keys := referenced[configMapKey{cm.Namespace, cm.Name}]
-		if !namespaceInScope(p.Scope, cm.Namespace) || !validName(cm.Name) ||
+		if keys == nil || !namespaceInScope(p.Scope, cm.Namespace) || !validName(cm.Name) || !simpleToken(cm.UID, 253) ||
 			!all(cm.Keys, func(key string) bool { return keys[key] }) ||
 			!all(cm.Binary, func(key string) bool { return keys[key] }) {
 			return ErrFormat
 		}
 	}
 	if !all(e.ReplicaSets, func(r replicaSet) bool {
-		return namespace(r.Identity) && validSelector(r.Selector) && validLabels(r.TemplateLabels)
+		return namespace(r.Identity)
 	}) || !all(e.Deployments, func(r deployment) bool {
-		return namespace(r.Identity) && validSelector(r.Selector) &&
-			validLabels(r.TemplateLabels) && validConditions(r.Conditions)
+		return namespace(r.Identity) && validLabels(r.TemplateLabels) && validConditions(r.Conditions)
 	}) || !all(e.DaemonSets, func(r daemonSet) bool {
-		return namespace(r.Identity) && validSelector(r.Selector) && validLabels(r.TemplateLabels) &&
+		return namespace(r.Identity) && validLabels(r.TemplateLabels) &&
 			oneOf(r.Strategy, "", "OnDelete", "RollingUpdate")
 	}) || !all(e.Services, func(r service) bool { return namespace(r.Identity) && validService(r) }) ||
 		!all(e.EndpointSlices, func(r endpointSlice) bool { return namespace(r.Identity) && validSlice(r) }) ||
@@ -126,7 +134,7 @@ func validateEvidence(p *payload) error {
 	}) || !all(e.DNSLegacyEndpoints, func(r legacyEndpoints) bool {
 		return system(r.Identity) && r.Identity.Name == "kube-dns" && validLegacy(r)
 	}) || !all(e.DNSConfig, func(r dnsConfig) bool {
-		return r.Namespace == "kube-system" && oneOf(r.Name, "kube-dns", "coredns")
+		return r.Namespace == "kube-system" && oneOf(r.Name, "kube-dns", "coredns") && simpleToken(r.UID, 253)
 	}) || !validExpansion(p.Scope, e.Expansion, hosts) || !validHistory(p) {
 		return ErrFormat
 	}
@@ -266,7 +274,7 @@ func validProvenance(scope model.Scope, id, method string) bool {
 
 func validSources(sources []model.SourceResult) bool {
 	return all(sources, func(s model.SourceResult) bool {
-		return knownSource(s.Source) && simpleToken(s.Resource, 253) && safeText(s.Detail, 2048) &&
+		return knownSource(s.Source) && simpleToken(s.Resource, 253) && knownCoverageDetail(s.Detail) &&
 			oneOf(string(s.Status), "complete", "not_applicable", "permission_denied", "unavailable",
 				"failed", "truncated", "not_inspected", "stale")
 	})
@@ -291,7 +299,8 @@ func validIdentity(i identity) bool {
 	return validName(i.Name) && (i.Namespace == "" || validNamespace(i.Namespace)) &&
 		simpleToken(i.UID, 253) && i.Generation >= 0 && validTimestamp(i.CreatedAt) && validTimestamp(i.DeletedAt) &&
 		len(i.Owners) <= 64 && all(i.Owners, func(o owner) bool {
-		return o.Kind != "" && simpleToken(o.Kind, 128) && validName(o.Name) && simpleToken(o.UID, 253)
+		return o.Kind != "" && simpleToken(o.Kind, 128) && validName(o.Name) && simpleToken(o.UID, 253) &&
+			(o.APIVersion == "" || o.APIVersion == safeOwnerVersion(metav1.OwnerReference{Kind: o.Kind, APIVersion: o.APIVersion}))
 	}) && validLabels(i.Labels)
 }
 
@@ -351,7 +360,7 @@ func validSelector(s *selector) bool {
 
 func validConditions(conditions []condition) bool {
 	return all(conditions, func(c condition) bool {
-		return c.Type != "" && simpleToken(c.Type, 64) && simpleToken(c.Reason, 128) &&
+		return validConditionType(c.Type) && validConditionReason(c.Reason) &&
 			oneOf(c.Status, "", "True", "False", "Unknown") &&
 			validTimestamp(c.TransitionAt) && validTimestamp(c.UpdatedAt)
 	})
@@ -366,7 +375,7 @@ func validClaim(c claim) bool {
 func validPod(p pod) bool {
 	return (p.HostNode == "" || validName(p.HostNode)) &&
 		oneOf(p.Phase, "", "Pending", "Running", "Succeeded", "Failed", "Unknown") &&
-		simpleToken(p.Reason, 128) && validTimestamp(p.StartedAt) && validConditions(p.Conditions) &&
+		validPodReason(p.Reason) && validTimestamp(p.StartedAt) && validConditions(p.Conditions) &&
 		(p.Resources == nil || validRequirements(*p.Resources)) &&
 		all(p.Containers, validContainer) && all(p.Init, validContainer) &&
 		all(p.Statuses, validContainerStatus) && all(p.InitStatuses, validContainerStatus) &&
@@ -423,7 +432,7 @@ func validContainerStatus(s containerStatus) bool {
 
 func validState(s containerState) bool {
 	if s.Waiting != nil {
-		return !s.Running && s.RunningSince == nil && s.Terminated == nil && simpleToken(*s.Waiting, 128)
+		return !s.Running && s.RunningSince == nil && s.Terminated == nil && validWaitingReason(*s.Waiting)
 	}
 	if s.Running {
 		return s.Terminated == nil && validTimestamp(s.RunningSince)
@@ -432,7 +441,7 @@ func validState(s containerState) bool {
 		return false
 	}
 	t := s.Terminated
-	return t == nil || (simpleToken(t.Reason, 128) && validTimestamp(t.StartedAt) && validTimestamp(t.FinishedAt))
+	return t == nil || (validTerminationReason(t.Reason) && validTimestamp(t.StartedAt) && validTimestamp(t.FinishedAt))
 }
 
 func validPort(p port) bool {
@@ -496,7 +505,7 @@ func validNetworkPolicy(s networkPolicy) bool {
 
 func validEvent(scope model.Scope, hosts map[string]bool, event classifiedEvent) bool {
 	r := event.Resource
-	if !validResource(r) || event.Count < 0 || event.Reason == "" || !simpleToken(event.Reason, 128) ||
+	if !validResource(r) || event.Count < 0 || !validEventReason(event.Reason) ||
 		!oneOf(event.TimeBasis, "", "series_last_observed", "last_reported", "event_time", "first_reported", "event_object_created") {
 		return false
 	}
@@ -520,13 +529,17 @@ func validMetrics(r currentUsage) bool {
 
 func uniqueIdentities[T any](values []T, identify func(T) identity) bool {
 	seen := make(map[[2]string]bool, len(values))
+	uids := make(map[string]bool, len(values))
 	for _, v := range values {
 		i := identify(v)
 		key := [2]string{i.Namespace, i.Name}
-		if seen[key] {
+		if seen[key] || (i.UID != "" && uids[i.UID]) {
 			return false
 		}
 		seen[key] = true
+		if i.UID != "" {
+			uids[i.UID] = true
+		}
 	}
 	return true
 }

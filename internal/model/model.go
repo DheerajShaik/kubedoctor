@@ -174,6 +174,7 @@ type ConfigIssue struct {
 }
 
 type ConfigMap struct {
+	UID        string
 	Namespace  string
 	Name       string
 	Keys       []string
@@ -181,6 +182,7 @@ type ConfigMap struct {
 }
 
 type DNSConfig struct {
+	UID         string
 	Name        string
 	Namespace   string
 	HasCorefile bool

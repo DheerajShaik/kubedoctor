@@ -109,21 +109,19 @@ func newInventory(s model.Snapshot) *inventory {
 		add("PersistentVolumeClaim", model.SourcePVCs, item, item.DeletionTimestamp == nil, item.Status.Phase != "", item.Status.Phase == core.ClaimBound)
 	}
 	for _, cm := range s.ConfigMaps {
-		index.add(model.Resource{Kind: "ConfigMap", Namespace: cm.Namespace, Name: cm.Name}, model.SourceConfigMaps, time.Time{}, true, true, true)
+		index.add(model.Resource{Kind: "ConfigMap", Namespace: cm.Namespace, Name: cm.Name, UID: cm.UID}, model.SourceConfigMaps, time.Time{}, true, true, true)
 	}
 	for _, cm := range s.DNSConfig {
-		resource := model.Resource{Kind: "ConfigMap", Namespace: cm.Namespace, Name: cm.Name}
+		resource := model.Resource{Kind: "ConfigMap", Namespace: cm.Namespace, Name: cm.Name, UID: cm.UID}
 		if _, known := index.byName[nameOf(resource)]; !known {
 			index.add(resource, model.SourceDNSConfig, time.Time{}, true, true, cm.HasCorefile)
 		}
 	}
 	for i := range s.DNSServices {
-		item := &s.DNSServices[i]
-		add("Service", model.SourceDNSServices, item, true, true, false)
+		index.addService(&s.DNSServices[i], model.SourceDNSServices)
 	}
 	for i := range s.Services {
-		item := &s.Services[i]
-		add("Service", model.SourceServices, item, true, true, false)
+		index.addService(&s.Services[i], model.SourceServices)
 	}
 	for i := range s.DNSEndpointSlices {
 		add("EndpointSlice", model.SourceDNSEndpointSlices, &s.DNSEndpointSlices[i], true, true, false)
@@ -149,6 +147,8 @@ func newInventory(s model.Snapshot) *inventory {
 			item.Generation > 0 && item.Status.ObservedGeneration == item.Generation, item.Status.DisruptionsAllowed > 0)
 	}
 	addExpansionInventory(s, index)
+	index.markReadyBackends(s.EndpointSlices)
+	index.markReadyBackends(s.DNSEndpointSlices)
 	return index
 }
 

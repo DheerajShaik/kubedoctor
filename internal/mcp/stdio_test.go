@@ -47,7 +47,7 @@ func TestStdioBinaryInterop(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		response, code := fixtureResponse(t, r, repaired.Load())
 		w.WriteHeader(code)
-		if err := json.NewEncoder(w).Encode(response); err != nil {
+		if err := json.NewEncoder(w).Encode(response); err != nil && r.Context().Err() == nil {
 			t.Errorf("write fixture response: %v", err)
 		}
 	}))

@@ -148,13 +148,14 @@ func replayInvestigation(evidence *bundle.Bundle) (investigation.Investigation, 
 
 func (s *sessionState) compare(ctx context.Context, args comparisonArguments) (investigation.Comparison, error) {
 	return runOperation(s, ctx, func(ctx context.Context) (investigation.Comparison, error) {
-		for _, id := range []string{args.BeforeID, args.AfterID} {
+		ids := [2]string{args.BeforeID, args.AfterID}
+		for _, id := range ids {
 			if !s.artifacts.permits(id) {
 				return investigation.Comparison{}, errArtifactMissing
 			}
 		}
 		var views [2]investigation.Investigation
-		for i, id := range []string{args.BeforeID, args.AfterID} {
+		for i, id := range ids {
 			evidence, err := s.artifacts.load(ctx, id)
 			if err != nil {
 				return investigation.Comparison{}, err

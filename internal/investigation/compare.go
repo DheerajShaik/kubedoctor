@@ -30,6 +30,11 @@ func Compare(before, after Investigation) Comparison {
 	if before.Truncated || after.Truncated {
 		result.Limitations = append(result.Limitations, "At least one investigation reached an analysis budget. Some associations may be absent.")
 	}
+	result.History = compareHistory(before.History, after.History)
+	if result.History != nil {
+		result.Limitations = append(result.Limitations, historyLimitation(*result.History))
+		result.Complete = result.Complete && result.History.Complete
+	}
 	left, right := indexComparison(before), indexComparison(after)
 	result.ResourceChanges, _ = compareLevel(left, right, reason, false)
 	var incomplete bool
@@ -43,15 +48,16 @@ func Compare(before, after Investigation) Comparison {
 
 func captureRef(inv Investigation) CaptureRef {
 	return CaptureRef{ClusterID: inv.ClusterID, ClusterProvenance: inv.ClusterProvenance, Scope: inv.Scope, SchemaVersion: inv.SchemaVersion,
-		RuleVersion: inv.RuleVersion, CaptureStartedAt: inv.CaptureStartedAt, CaptureCompletedAt: inv.CaptureCompletedAt, EvaluatedAt: inv.EvaluatedAt}
+		RuleVersion: inv.RuleVersion, CaptureRuleVersion: inv.CaptureRuleVersion, AnalysisMode: inv.AnalysisMode,
+		CaptureStartedAt: inv.CaptureStartedAt, CaptureCompletedAt: inv.CaptureCompletedAt, EvaluatedAt: inv.EvaluatedAt}
 }
 
 func incompatibility(before, after Investigation) string {
 	switch {
 	case before.SchemaVersion != SchemaVersion || after.SchemaVersion != SchemaVersion:
 		return "An investigation schema version is unsupported. Rebuild both investigations with a compatible executable."
-	case before.RuleVersion == "" || before.RuleVersion != after.RuleVersion:
-		return "Analyzer versions differ. Explicitly reevaluate both captures using the same supported rules to compare observations."
+	case before.RuleVersion != model.AnalyzerVersion || after.RuleVersion != model.AnalyzerVersion:
+		return "One or more analyzer versions are unsupported for comparison. Use two investigations evaluated under the current rules."
 	case !strongProvenance(before) || !strongProvenance(after) || before.ClusterProvenance != after.ClusterProvenance:
 		return "Strong cluster provenance is missing from a capture. Context names alone cannot establish cluster identity."
 	case before.ClusterID != after.ClusterID:
@@ -251,10 +257,8 @@ func comparisonVisibility(change *Change, finding model.Finding, left, right com
 	if left.checks[change.RuleID] != model.Checked || right.checks[change.RuleID] != model.Checked {
 		return "The applicable check did not report inspected coverage in both captures."
 	}
-	if left.inv.RuleVersion != model.AnalyzerVersion {
-		return "The current comparison policy cannot interpret disappearance using this analyzer's coverage contract."
-	}
-	required := append(findingSources(finding), sourceFor(change.Subject.Kind))
+	dependencies := findingSources(finding)
+	required := append(append([]model.Source{}, dependencies...), left.inventory[change.Subject].Source, right.inventory[change.Subject].Source)
 	if finding.Resource.Kind == "Pod" && change.Subject != finding.Resource {
 		required = append(required, model.SourcePods)
 		if change.Subject.Kind == "Deployment" || change.Subject.Kind == "ReplicaSet" {
@@ -266,7 +270,16 @@ func comparisonVisibility(change *Change, finding model.Finding, left, right com
 			return "Complete, timed observations are unavailable on both sides for " + string(source) + "."
 		}
 	}
-	if len(findingSources(finding)) == 0 {
+	if finding.RuleID == "pvc-binding" && evidenceValue(finding, "storage_class") != "" {
+		evidenceSide := left
+		if len(change.Before) == 0 {
+			evidenceSide = right
+		}
+		if !evidenceSide.observed(model.SourceStorageClasses) {
+			return "Timed StorageClass evidence is unavailable for the capture reporting the binding problem."
+		}
+	}
+	if len(dependencies) == 0 {
 		return "The rule has no registered evidence requirements for absence comparisons."
 	}
 	return ""
@@ -283,6 +296,8 @@ func positiveContinuity(left, right compareSnapshot, subject model.Resource, fin
 			return false // Separate executions under a controller do not repair one another.
 		}
 		switch finding.RuleID {
+		case "service.backends", "service.ports", "service-endpoint-identity":
+			return comparableServiceBackend(before, after, finding)
 		case "deployment-rollout", "daemonset-rollout", "statefulset-rollout", "pdb.disruptions":
 			return after.Active && after.Ready
 		case "job-execution", "pvc-binding":

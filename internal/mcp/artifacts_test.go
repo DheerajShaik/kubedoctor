@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/DheerajShaik/kubedoctor/internal/bundle"
 	"github.com/DheerajShaik/kubedoctor/internal/engine"
+	"github.com/DheerajShaik/kubedoctor/internal/history"
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	core "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -336,5 +339,58 @@ func TestReplayToolsRejectDifferentAnalyzerVersion(t *testing.T) {
 			!bytes.Contains(resultJSON(t, result), []byte("requires a compatible analyzer version")) {
 			t.Fatalf("unexpected %s response: %s", tool, resultJSON(t, result))
 		}
+	}
+}
+
+func TestConfiguredHistoryUsesAuthorizedCaptureScope(t *testing.T) {
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("the out-of-scope history target reached the provider")
+		http.Error(w, "fixture sent an unexpected request", http.StatusBadRequest)
+	}))
+	t.Cleanup(endpoint.Close)
+	provider, err := history.New(history.Config{
+		URL: endpoint.URL, Cluster: "fixture-cluster",
+		Targets: []history.TargetPolicy{{Namespace: "other", Kind: "Pod", Name: "checkout", Container: "app"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := captureFixture(func(_ context.Context, request model.ScanRequest) model.Snapshot {
+		return snapshotFixture(request.Scope, time.Now().UTC(), false)
+	})
+	client := memoryClient(t, t.Context(), capture, Options{
+		Context: "fixture", Timeout: time.Second, AllowNamespaces: []string{"payments"},
+		Version: "v0.2.0-test", History: provider,
+	})
+	saved := callTool(t, client, captureNamespace, `{"namespace":"payments"}`)
+	var artifact artifactReference
+	convertStructured(t, saved, &artifact)
+	if saved.IsError || !validArtifactID(artifact.ArtifactID) {
+		t.Fatalf("capture failed: %s", resultJSON(t, saved))
+	}
+	result := callTool(t, client, historicalTool, fmt.Sprintf(`{"artifact_id":%q}`, artifact.ArtifactID))
+	var output historicalResult
+	convertStructured(t, result, &output)
+	if result.IsError || output.Scope != artifact.Scope || output.Status != model.HistoryUnavailable ||
+		output.History == nil || output.History.Reason != model.HistoryNoTargets || len(output.History.Targets) != 0 {
+		t.Fatalf("unexpected history result: %s", resultJSON(t, result))
+	}
+}
+
+func TestClusterCaptureWithExplicitEnablement(t *testing.T) {
+	capture := captureFixture(func(_ context.Context, request model.ScanRequest) model.Snapshot {
+		snapshot := snapshotFixture(request.Scope, fixtureTime, false)
+		snapshot.Pods[0].Namespace = "payments"
+		return snapshot
+	})
+	client := memoryClient(t, t.Context(), capture, Options{
+		Context: "fixture", Timeout: time.Second, EnableCluster: true, ArtifactClusterID: fixtureID, Version: "v0.2.0-test",
+	})
+	saved := callTool(t, client, captureCluster, `{}`)
+	var reference artifactReference
+	convertStructured(t, saved, &reference)
+	expected := model.Scope{Kind: model.ClusterScope, Context: "fixture"}
+	if saved.IsError || !validArtifactID(reference.ArtifactID) || reference.Scope != expected {
+		t.Fatalf("cluster capture = %s", resultJSON(t, saved))
 	}
 }

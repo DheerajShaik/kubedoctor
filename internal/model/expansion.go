@@ -110,6 +110,16 @@ type HPAUtilizationTarget struct {
 	Percent   int32  `json:"percent"`
 }
 
+func HPAWarningReason(reason string) bool {
+	switch reason {
+	case "FailedGetScale", "FailedUpdateScale", "FailedRescale", "FailedGetResourceMetric", "FailedGetContainerResourceMetric",
+		"FailedGetPodsMetric", "FailedGetObjectMetric", "FailedGetExternalMetric", "FailedComputeMetricsReplicas", "InvalidMetricSourceType":
+		return true
+	default:
+		return false
+	}
+}
+
 type QuotaEvidence struct {
 	Resource   Resource        `json:"resource"`
 	Created    time.Time       `json:"created"`

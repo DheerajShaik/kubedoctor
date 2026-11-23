@@ -40,14 +40,28 @@ type Investigation struct {
 // UID-validated workload assignment. Declared but unobserved targets remain
 // available as relationship endpoints.
 type ResourceObservation struct {
-	Resource     model.Resource  `json:"resource"`
-	Workload     *model.Resource `json:"workload,omitempty"`
-	Source       model.Source    `json:"source"`
-	CreatedAt    *time.Time      `json:"created_at,omitempty"`
-	Active       bool            `json:"active"`
-	StatusFresh  bool            `json:"status_fresh"`
-	Ready        bool            `json:"ready"`
-	ExpectedPods *int32          `json:"expected_pods,omitempty"`
+	Resource     model.Resource      `json:"resource"`
+	Workload     *model.Resource     `json:"workload,omitempty"`
+	Source       model.Source        `json:"source"`
+	CreatedAt    *time.Time          `json:"created_at,omitempty"`
+	Active       bool                `json:"active"`
+	StatusFresh  bool                `json:"status_fresh"`
+	Ready        bool                `json:"ready"`
+	ExpectedPods *int32              `json:"expected_pods,omitempty"`
+	Service      *ServiceObservation `json:"service,omitempty"`
+}
+
+type ServiceObservation struct {
+	BackendMode     string                 `json:"backend_mode"`
+	Headless        bool                   `json:"headless"`
+	PublishNotReady bool                   `json:"publish_not_ready"`
+	DeclaredPorts   []ServicePortReference `json:"declared_ports"`
+}
+
+type ServicePortReference struct {
+	Name     string `json:"name,omitempty"`
+	Number   int32  `json:"number"`
+	Protocol string `json:"protocol"`
 }
 
 type RelationshipKind string
@@ -133,6 +147,8 @@ type CaptureRef struct {
 	Scope              model.Scope `json:"scope"`
 	SchemaVersion      string      `json:"investigation_schema_version"`
 	RuleVersion        string      `json:"rule_version"`
+	CaptureRuleVersion string      `json:"capture_rule_version"`
+	AnalysisMode       string      `json:"analysis_mode"`
 	CaptureStartedAt   time.Time   `json:"capture_started_at"`
 	CaptureCompletedAt time.Time   `json:"capture_completed_at"`
 	EvaluatedAt        time.Time   `json:"evaluated_at"`
@@ -173,13 +189,25 @@ type CoverageChange struct {
 }
 
 type Comparison struct {
-	SchemaVersion   string           `json:"schema_version"`
-	Before          CaptureRef       `json:"before"`
-	After           CaptureRef       `json:"after"`
-	Compatible      bool             `json:"compatible"`
-	Complete        bool             `json:"complete"`
-	Limitations     []string         `json:"limitations"`
-	CoverageChanges []CoverageChange `json:"coverage_changes"`
-	ResourceChanges []Change         `json:"resource_changes"`
-	WorkloadChanges []Change         `json:"workload_changes"`
+	SchemaVersion   string             `json:"schema_version"`
+	Before          CaptureRef         `json:"before"`
+	After           CaptureRef         `json:"after"`
+	Compatible      bool               `json:"compatible"`
+	Complete        bool               `json:"complete"`
+	Limitations     []string           `json:"limitations"`
+	CoverageChanges []CoverageChange   `json:"coverage_changes"`
+	ResourceChanges []Change           `json:"resource_changes"`
+	WorkloadChanges []Change           `json:"workload_changes"`
+	History         *HistoryComparison `json:"history,omitempty"`
+}
+
+type HistoryComparison struct {
+	BeforeStatus      string `json:"before_status"`
+	AfterStatus       string `json:"after_status"`
+	BeforeTargetCount int    `json:"before_target_count"`
+	AfterTargetCount  int    `json:"after_target_count"`
+	ComparableTargets int    `json:"comparable_targets"`
+	LostTargets       int    `json:"lost_targets"`
+	NewTargets        int    `json:"new_targets"`
+	Complete          bool   `json:"complete"`
 }

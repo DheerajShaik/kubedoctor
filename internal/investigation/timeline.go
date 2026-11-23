@@ -45,8 +45,9 @@ func (timeline *timelineBuilder) add(at time.Time, kind TimelineTimeKind, resour
 		return
 	}
 	uncertain = uncertain || kind != CollectionTime && !timeline.evaluation.IsZero() && at.After(timeline.evaluation)
-	if uncertain && at.After(timeline.evaluation.Add(clockTolerance)) {
+	if uncertain && !timeline.evaluation.IsZero() && at.After(timeline.evaluation.Add(clockTolerance)) {
 		timeline.uncertain = true
+		return
 	}
 	entry := TimelineEntry{Time: at.UTC(), TimeKind: kind, Resource: resource, Source: source, Summary: summary, Evidence: facts, Uncertain: uncertain}
 	if len(timeline.entries) < maxTimelineEntries-3 {
@@ -166,7 +167,7 @@ func buildTimeline(s model.Snapshot, index *inventory, output *Investigation) []
 		output.Limitations = append(output.Limitations, "Timeline budget retained the most recent observations and capture markers. Earlier entries may be omitted.")
 	}
 	if builder.uncertain {
-		output.Limitations = append(output.Limitations, "One or more reported timestamps exceed the evaluation clock by over five minutes. Their timing is uncertain.")
+		output.Limitations = append(output.Limitations, "Timeline omitted one or more reported times that exceeded the evaluation clock by over five minutes.")
 	}
 	for _, boundary := range []struct {
 		at      time.Time

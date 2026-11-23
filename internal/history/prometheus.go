@@ -55,7 +55,7 @@ func (p *Provider) readMetric(ctx context.Context, metric string, targets []sour
 	for _, target := range targets {
 		key := target.key()
 		if key.runtime == "" {
-			results[key] = unavailable(model.HistoryUnavailable, model.HistoryNoTargets)
+			results[key] = unavailable(model.HistoryUnavailable, model.HistoryRuntimeUnknown)
 			continue
 		}
 		known[key] = true

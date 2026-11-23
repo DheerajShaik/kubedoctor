@@ -113,7 +113,7 @@ func findingSources(finding model.Finding) []model.Source {
 		}
 		return []model.Source{model.SourcePods, model.SourceEvents}
 	case "pvc-binding":
-		return []model.Source{model.SourcePVCs, model.SourceStorageClasses}
+		return []model.Source{model.SourcePVCs}
 	case "service.backends", "service.ports", "service-endpoint-identity":
 		return []model.Source{model.SourceServices, model.SourceEndpointSlices, model.SourcePods}
 	case "ingress.backends":
@@ -144,46 +144,4 @@ func findingSources(finding model.Finding) []model.Source {
 		return []model.Source{model.SourceNodeLocalDNS, model.SourceNodeLocalPods, model.SourcePods}
 	}
 	return nil
-}
-
-func sourceFor(kind string) model.Source {
-	switch kind {
-	case "Node":
-		return model.SourceNodes
-	case "Pod":
-		return model.SourcePods
-	case "Deployment":
-		return model.SourceDeployments
-	case "DaemonSet":
-		return model.SourceDaemonSets
-	case "ReplicaSet":
-		return model.SourceReplicaSets
-	case "ConfigMap":
-		return model.SourceConfigMaps
-	case "PersistentVolumeClaim":
-		return model.SourcePVCs
-	case "Service":
-		return model.SourceServices
-	case "EndpointSlice":
-		return model.SourceEndpointSlices
-	case "Ingress":
-		return model.SourceIngresses
-	case "PodDisruptionBudget":
-		return model.SourcePDBs
-	case "NetworkPolicy":
-		return model.SourceNetworkPolicies
-	case "StatefulSet":
-		return model.SourceStatefulSets
-	case "Job":
-		return model.SourceJobs
-	case "CronJob":
-		return model.SourceCronJobs
-	case "HorizontalPodAutoscaler":
-		return model.SourceHPAs
-	case "ResourceQuota":
-		return model.SourceQuotas
-	case "LimitRange":
-		return model.SourceLimitRanges
-	}
-	return ""
 }
