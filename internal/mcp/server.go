@@ -74,7 +74,14 @@ func newServer(serverCtx context.Context, scanner engine.Scanner, options Option
 	server := protocol.NewServer(&protocol.Implementation{Name: "kubedoctor", Version: options.Version}, nil)
 	server.AddReceivingMiddleware(validateToolArguments)
 
+	activeScan := make(chan struct{}, 1)
 	scan := func(ctx context.Context, kind model.ScopeKind, namespace string) (*protocol.CallToolResult, model.Report, error) {
+		select {
+		case activeScan <- struct{}{}:
+			defer func() { <-activeScan }()
+		default:
+			return nil, model.Report{}, errors.New("A diagnostic scan is already running")
+		}
 		scanCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 		defer cancel()
 		stop := context.AfterFunc(serverCtx, cancel)

@@ -332,6 +332,9 @@ func serviceSelectorMismatches(service *core.Service, groups []networkBackendGro
 	selector := labels.SelectorFromSet(service.Spec.Selector)
 	mismatched := make(map[types.UID]bool)
 	for _, group := range groups {
+		if group.owner != service.UID {
+			continue
+		}
 		for _, uid := range group.controllerTargets {
 			pod := podsByUID[uid]
 			if pod != nil && pod.Namespace == service.Namespace && networkActivePod(pod) && !selector.Matches(labels.Set(pod.Labels)) {

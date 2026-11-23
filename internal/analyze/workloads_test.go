@@ -371,6 +371,38 @@ func TestResourcesAndCurrentMetrics(t *testing.T) {
 	workloadExpect(t, s, resourcesRule, model.Inconclusive, 0)
 }
 
+func TestMetricsQuantityLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name, cpu, memory string
+	}{
+		{"large CPU exponent", "1e100000000", "80Mi"},
+		{"large memory exponent", "6500u", "1e100000000"},
+		{"CPU above bound", "1000000.000000001", "80Mi"},
+		{"memory just above int64", "6500u", "9223372036854775807.000000001"},
+		{"negative memory", "6500u", "-1"},
+		{"negative CPU", "-1n", "80Mi"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := workloadFixture()
+			s.Pods = []core.Pod{workloadPod()}
+			s.Metrics = []model.PodUsage{{Namespace: "payments", Name: "processor", Timestamp: workloadTestTime, Window: time.Minute,
+				Containers: []model.ContainerUsage{{Name: "app", CPU: resource.MustParse(tc.cpu), Memory: resource.MustParse(tc.memory)}},
+			}}
+			workloadExpect(t, s, metricsRule, model.Inconclusive, 0)
+		})
+	}
+
+	s := workloadFixture()
+	s.Pods = []core.Pod{workloadPod()}
+	s.Metrics = []model.PodUsage{{Namespace: "payments", Name: "processor", Timestamp: workloadTestTime, Window: time.Minute,
+		Containers: []model.ContainerUsage{{Name: "app", CPU: resource.MustParse("1n"), Memory: resource.MustParse("9223372036854775807")}},
+	}}
+	finding := workloadExpect(t, s, metricsRule, model.Checked, 1)[0]
+	if workloadEvidenceValue(finding, "cpu_cores") != "0.000000001" || workloadEvidenceValue(finding, "memory_bytes") != "9223372036854775807" {
+		t.Fatalf("valid quantity boundaries were changed: %+v", finding)
+	}
+}
+
 func TestRecentWarningsBoundedAndCorrelated(t *testing.T) {
 	s := workloadFixture()
 	p := workloadPod()

@@ -124,6 +124,14 @@ func TestDNSInfrastructure(t *testing.T) {
 			setup: func(s *model.Snapshot) { s.DNSConfig[0].HasCorefile = false },
 		},
 		{
+			name: "known configuration observation survives missing Service visibility", status: model.Inconclusive, count: 1,
+			setup: func(s *model.Snapshot) {
+				s.DNSServices = nil
+				s.DNSConfig[0].HasCorefile = false
+				networkSetCoverage(s, model.SourceDNSServices, model.PermissionDenied)
+			},
+		},
+		{
 			name: "CoreDNS configuration access denied", status: model.Inconclusive,
 			setup: func(s *model.Snapshot) {
 				s.DNSConfig = nil

@@ -25,6 +25,17 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version: '1.27.4'
+      - name: Record pull request base protection
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if protection=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BASE" --jq '.protected'); then
+            printf 'Base branch protected: %s\n' "$protection"
+          else
+            printf 'Base branch protection metadata unavailable.\n'
+          fi
       - name: Go formatting
         shell: bash
         run: |

@@ -1,10 +1,12 @@
 package analyze
 
 import (
+	"math"
 	"time"
 
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	core "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func analyzeResourceSettings(s model.Snapshot, index workloadIndex) ([]model.Finding, model.CheckResult) {
@@ -100,7 +102,10 @@ func analyzeMetrics(s model.Snapshot, index workloadIndex) ([]model.Finding, mod
 		}
 		for _, usage := range sample.Containers {
 			seen, matchesContainer := matches[usage.Name]
-			if !matchesContainer || seen || usage.CPU.Sign() < 0 || usage.Memory.Sign() < 0 {
+			if !matchesContainer || seen {
+				continue
+			}
+			if !boundedUsage(&usage.CPU, 1_000_000) || !boundedUsage(&usage.Memory, math.MaxInt64) {
 				continue
 			}
 			matches[usage.Name] = true
@@ -127,4 +132,12 @@ func analyzeMetrics(s model.Snapshot, index workloadIndex) ([]model.Finding, mod
 		}
 	}
 	return findings, check
+}
+
+func boundedUsage(quantity *resource.Quantity, maxValue int64) bool {
+	value := quantity.AsDec()
+	// Screen the representation before comparing, formatting or scaling it.
+	// A signed 64-bit integer with nine fractional digits fits in 93 bits.
+	return value.Sign() >= 0 && value.Scale() >= -18 && value.Scale() <= 9 &&
+		value.UnscaledBig().BitLen() <= 93 && quantity.CmpInt64(maxValue) <= 0
 }

@@ -19,3 +19,7 @@ The stdio process binds Kubernetes credentials and context at startup. Callers g
 ## 2026-11-23 — Server-supplied warnings and request budgets
 
 Kubernetes Warning headers are API-controlled strings. The collector disables their default client-go logger and uses a discarded contextual request logger. A synthetic binary-level fixture sends a sentinel in the Warning header and checks the process streams. The per-response decoded data budget is 32 MiB. The collector uses up to four workers, up to three HTTP attempts per paged operation, 200 items per page, and up to 25 pages or 5,000 items per source. Namespace-scoped hosting-node and StorageClass lookups are capped at 64 distinct names each. The report marks any data or request budget gaps and preserves complete earlier pages.
+
+## 2026-11-23 — Dependency scan and release license
+
+The initial dependency scan found five reachable HTTP/2 advisories associated with `golang.org/x/net` v0.56.0. Pinning v0.63.0 and resolving its compatible dependencies removed the findings in the local reachable-symbol scan. The CI workflow uses the published Go vulnerability database. Apache-2.0 was selected for the source and release artifacts, consistent with the Kubernetes ecosystem.

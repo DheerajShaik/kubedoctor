@@ -49,9 +49,11 @@ assert_report() {
 
 mkdir "$test_dir/bin"
 go build -trimpath -o "$test_dir/bin/kubectl-doctor" ./cmd/kubectl-doctor
+kubectl_path=$(command -v kubectl)
 export PATH="$test_dir/bin:$PATH"
-kubectl plugin list | grep -Fx "$test_dir/bin/kubectl-doctor"
-kubectl doctor version
+# Isolate discovery from unrelated kubectl plugins installed on the runner.
+PATH="$test_dir/bin" "$kubectl_path" plugin list | grep -Fx "$test_dir/bin/kubectl-doctor"
+PATH="$test_dir/bin" "$kubectl_path" doctor version
 "$test_dir/bin/kubectl-doctor" checks >/dev/null
 
 existing_clusters=$(kind get clusters)
@@ -68,7 +70,7 @@ kubectl config set-context before-scan --cluster "$context" --user "$context" --
 kubectl config use-context before-scan >/dev/null
 kube -n kube-system rollout status deployment/coredns --timeout=120s
 image_ready=$(kube -n kube-system get deployment coredns -o jsonpath='{.spec.template.spec.containers[0].image}')
-if [[ ! "$image_ready" =~ ^registry\.k8s\.io/coredns/coredns:[a-zA-Z0-9._-]+$ ]]; then
+if [[ ! "$image_ready" =~ ^registry\.k8s\.io/coredns/coredns[:@][a-zA-Z0-9._:@-]+$ ]]; then
   printf 'Unexpected CoreDNS fixture image.\n' >&2
   exit 1
 fi
@@ -85,6 +87,8 @@ service_age=$(kube -n doctor-broken get service empty-selector -o json | jq 'now
 if ((service_age < 65)); then
   sleep "$((65 - service_age))"
 fi
+kube -n doctor-healthy wait --for=jsonpath='{.endpoints[0].conditions.ready}'=true \
+  endpointslices -l kubernetes.io/service-name=ready-app --timeout=120s
 
 kubectl doctor namespace doctor-healthy --kubeconfig "$KUBECONFIG" --context "$context" --timeout 45s --output json --fail-on warning >"$test_dir/healthy.json"
 assert_report "$test_dir/healthy.json" '

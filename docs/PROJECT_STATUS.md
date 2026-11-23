@@ -1,8 +1,8 @@
 # Project status
 
-- Charter FROZEN-v1.0. Initial upstream commit `3204c076bf82147d211d51d43773e1173966699c` on `main`.
-- Repository `DheerajShaik/kubedoctor`, private. GitHub connector confirmed owner login, administrative repository permission and default branch. Git push dry-run on implementation ref succeeded. Local gh API access returned HTTP 403. Protection and required reviews will be checked through PR merge status.
-- Work underway on typed collection, pure rules, CLI and integration fixtures. The independent design critique is recorded in [Design review](DESIGN_REVIEW.md).
-- Environment Linux amd64 with rootless Docker 29.9.2. Verified Go 1.27.4 toolchain installed in task work area. The shell did not have a usable Go SDK, kind or kubectl preinstalled.
-- Pull request, CI, external review, merge and release are pending implementation and verification.
-- Next run the unit and transport tests, verify the actual kubectl plugin with kind, verify MCP stdio, request external review, and inspect CI and merge gates on the current revision.
+- Charter FROZEN-v1.0. The initial upstream commit was `3204c076bf82147d211d51d43773e1173966699c` on `main`. The private implementation branch is `codex/kubedoctor-v0-1`.
+- The CLI implements 17 checks with versioned JSON, terminal output, scoped collection, and partial coverage. The stdio server shares the engine and supports three tools subject to the configured scope. The [validation record](VALIDATION.md) distinguishes synthetic from live tests.
+- The independent design review and implementation review completed. The fixes are in [implementation review](INTERNAL_REVIEW.md).
+- [PR #1](https://github.com/DheerajShaik/kubedoctor/pull/1) was opened as a draft at `b357f3f5c97d307312968ae36e07a820eebb908c` to run the first hosted Kubernetes matrix. Review found a dependency update and further correctness/security follow-ups. The live PR provides the current head and check status.
+- The local rootless Docker runtime cannot start kind because cgroup delegation is unavailable. Hosted CI runs the live suites. Repository access and implementation branch pushes were verified against GitHub. The GitHub connector provides PR and CI access even though the shell's GitHub API route returns HTTP 403.
+- Before merging, verify hosted CI and completed external Codex review for the current PR head. Verify branch restrictions, merge state, default-branch validation and the private draft release on GitHub. Follow the [charter](../PROJECT_CHARTER.md).

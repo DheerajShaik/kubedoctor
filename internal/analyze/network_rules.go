@@ -98,7 +98,7 @@ const (
 
 func analyzeDNS(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 	check := model.CheckResult{ID: dnsID, Status: model.Checked, Detail: "Inspects conventional DNS infrastructure. Workload name resolution requires a runtime observation from the workload."}
-	var findings []model.Finding
+	findings := dnsConfigurationFindings(s.DNSConfig)
 	service := networkObservedDNSService(s)
 	if service == nil {
 		check.Status = model.Inconclusive
@@ -161,15 +161,6 @@ func analyzeDNS(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		}
 	}
 
-	for _, config := range s.DNSConfig {
-		if config.Namespace == dnsNamespace && config.Name == "coredns" && !config.HasCorefile {
-			identity := &metav1.ObjectMeta{Namespace: config.Namespace, Name: config.Name}
-			findings = append(findings, networkFinding(dnsID, "ConfigMap", identity, model.Info, model.Hypothesis,
-				"The conventional CoreDNS ConfigMap lacks the Corefile key.",
-				[]model.Evidence{{Field: "corefile_key_present", Value: "false"}},
-				"Confirm the running DNS deployment's configuration source. The conventional CoreDNS mount reads a key named Corefile."))
-		}
-	}
 	if s.Coverage(model.SourceDNSConfig) != model.Complete || s.Coverage(model.SourceDNSPods) != model.Complete {
 		check.Status = model.Inconclusive
 		if complete {
@@ -180,6 +171,20 @@ func analyzeDNS(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		check.Detail += " Legacy Endpoints provide reduced readiness and termination detail."
 	}
 	return findings, check
+}
+
+func dnsConfigurationFindings(configs []model.DNSConfig) []model.Finding {
+	var findings []model.Finding
+	for _, config := range configs {
+		if config.Namespace == dnsNamespace && config.Name == "coredns" && !config.HasCorefile {
+			identity := &metav1.ObjectMeta{Namespace: config.Namespace, Name: config.Name}
+			findings = append(findings, networkFinding(dnsID, "ConfigMap", identity, model.Info, model.Hypothesis,
+				"The conventional CoreDNS ConfigMap lacks the Corefile key.",
+				[]model.Evidence{{Field: "corefile_key_present", Value: "false"}},
+				"Confirm the running DNS deployment's configuration source. The conventional CoreDNS mount reads a key named Corefile."))
+		}
+	}
+	return findings
 }
 
 func networkObservedDNSService(s model.Snapshot) *core.Service {
@@ -230,8 +235,8 @@ type networkPolicyObservation struct {
 	ingressRules, egressRules int
 }
 
-type policyAllows struct {
-	selected, allowed bool
+type policyDirectionObservation struct {
+	selected, hasRules bool
 }
 
 func analyzeNetworkPolicies(s model.Snapshot, pods map[string][]*core.Pod) ([]model.Finding, model.CheckResult) {
@@ -275,24 +280,24 @@ func analyzeNetworkPolicies(s model.Snapshot, pods map[string][]*core.Pod) ([]mo
 			if !networkActivePod(pod) || pod.Spec.HostNetwork {
 				continue
 			}
-			var ingress, egress policyAllows
+			var ingress, egress policyDirectionObservation
 			for _, item := range namespacePolicies {
 				if !item.selector.Matches(labels.Set(pod.Labels)) {
 					continue
 				}
 				if item.ingress {
 					ingress.selected = true
-					ingress.allowed = ingress.allowed || item.ingressRules > 0
+					ingress.hasRules = ingress.hasRules || item.ingressRules > 0
 				}
 				if item.egress {
 					egress.selected = true
-					egress.allowed = egress.allowed || item.egressRules > 0
+					egress.hasRules = egress.hasRules || item.egressRules > 0
 				}
 			}
-			if ingress.selected && !ingress.allowed {
+			if ingress.selected && !ingress.hasRules {
 				noIngress++
 			}
-			if egress.selected && !egress.allowed {
+			if egress.selected && !egress.hasRules {
 				noEgress++
 			}
 		}

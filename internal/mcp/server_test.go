@@ -282,3 +282,59 @@ func TestReportSizeLimit(t *testing.T) {
 		t.Fatalf("unexpected size-limit result: %.512s", encoded)
 	}
 }
+
+func TestConcurrentDiagnosticsRejectAdditionalScan(t *testing.T) {
+	var scans atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := memoryClient(t, t.Context(), scannerFunc(func(ctx context.Context, request model.ScanRequest) model.Report {
+		if scans.Add(1) == 1 {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return reportFor(request)
+	}), Options{
+		Context: "fixed", Timeout: 30 * time.Second, EnableCluster: true, AllowNamespaces: []string{"payments"},
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	finished := make(chan error, 1)
+	go func() {
+		result, err := client.CallTool(ctx, &protocol.CallToolParams{Name: clusterTool})
+		if err == nil && result.IsError {
+			err = errors.New("first scan failed")
+		}
+		finished <- err
+	}()
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("first scan did not start")
+	}
+
+	busy := callTool(t, client, namespaceTool, `{"namespace":"payments"}`)
+	if !busy.IsError || !strings.Contains(string(resultJSON(t, busy)), "A diagnostic scan is already running") || scans.Load() != 1 {
+		t.Fatalf("overlapping scan returned %s with %d scans", resultJSON(t, busy), scans.Load())
+	}
+	if inventory := callTool(t, client, checksTool, `{}`); inventory.IsError {
+		t.Fatal("check inventory depended on the scan gate")
+	}
+	close(release)
+
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal("first scan did not finish")
+	}
+	decodeReport(t, callTool(t, client, namespaceTool, `{"namespace":"payments"}`))
+	if scans.Load() != 2 {
+		t.Fatalf("completed and retried scans = %d", scans.Load())
+	}
+}
