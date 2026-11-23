@@ -3,6 +3,8 @@ package analyze
 import (
 	"math/big"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"time"
 
@@ -64,7 +66,7 @@ func hpaTargetSource(hpa model.HPAEvidence) model.Source {
 	}
 }
 
-func analyzeHPAs(s model.Snapshot) ([]model.Finding, model.CheckResult) {
+func analyzeHPAs(s model.Snapshot, index workloadIndex) ([]model.Finding, model.CheckResult) {
 	check := workloadCoverage(s, hpaRule, model.SourceHPAs)
 	targets := scalableTargets(s, activeOwnedPods(s.Pods))
 	var findings []model.Finding
@@ -86,18 +88,13 @@ func analyzeHPAs(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		if source != "" && s.Coverage(source) == model.Complete && target.object.Name == "" {
 			severity, symptom = model.Warning, "The HPA's declared scale target is absent from the observed namespace inventory"
 		}
-		// The upstream HPA controller may omit observedGeneration. A condition
-		// on generation one has no earlier spec revision to be stale against.
-		fresh := hpa.Generation > 0 && (hpa.ObservedGeneration == hpa.Generation || hpa.Generation == 1 && hpa.ObservedGeneration == 0)
-		if !fresh || hpa.TargetsTruncated {
-			workloadUncertain(&check, "An HPA has stale status or incomplete utilization configuration")
+		if hpa.TargetsTruncated {
+			workloadUncertain(&check, "An HPA has incomplete utilization configuration")
 		}
-		if fresh {
-			conditionSeverity, conditionSymptom, conditions := hpaConditions(hpa, &check)
-			evidence = append(evidence, conditions...)
-			if symptom == "" && conditionSymptom != "" {
-				severity, symptom = conditionSeverity, conditionSymptom
-			}
+		conditionSeverity, conditionSymptom, conditions := observedHPAConditions(s, index, hpa, &check)
+		evidence = append(evidence, conditions...)
+		if symptom == "" && conditionSymptom != "" {
+			severity, symptom = conditionSeverity, conditionSymptom
 		}
 		requestSourcesVisible := target.object.UID != "" && s.Coverage(model.SourcePods) == model.Complete &&
 			(hpa.Target.Kind != "Deployment" || s.Coverage(model.SourceReplicaSets) == model.Complete)
@@ -124,6 +121,62 @@ func analyzeHPAs(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		findings = append(findings, finding)
 	}
 	return findings, check
+}
+
+func observedHPAConditions(s model.Snapshot, index workloadIndex, hpa model.HPAEvidence, check *model.CheckResult) (model.Severity, string, []model.Evidence) {
+	if hpa.Generation > 0 && hpa.ObservedGeneration == hpa.Generation {
+		return hpaConditions(hpa, check)
+	}
+	if hpa.ObservedGeneration != 0 {
+		workloadUncertain(check, "An HPA's observed generation differs from its metadata generation")
+		return "", "", nil
+	}
+	// The built-in HPA registry and controller can leave both generation fields
+	// unset. Conditions establish controller reports, without tying those reports
+	// to the current scale target or metric specification revision.
+	workloadUncertain(check, "An HPA status does not identify the generation it observed")
+	conditions := make([]model.BriefCondition, 0, len(hpa.Conditions))
+	var corroborating *model.Event
+	for _, kind := range []string{"AbleToScale", "ScalingActive", "ScalingLimited"} {
+		condition := briefCondition(hpa.Conditions, kind)
+		if condition == nil || hpa.Created.IsZero() || condition.Transition.Before(hpa.Created) || condition.Transition.After(s.CollectedAt) {
+			continue
+		}
+		event := corroboratingHPAEvent(hpa, *condition, index)
+		if event != nil && (corroborating == nil || event.Time.After(corroborating.Time)) {
+			corroborating = event
+		}
+		if event != nil || observedWithin(s.CollectedAt, condition.Transition, warningHorizon) {
+			conditions = append(conditions, *condition)
+		}
+	}
+	hpa.Conditions = conditions
+	severity, symptom, evidence := hpaConditions(hpa, check)
+	if symptom == "" {
+		return "", "", nil
+	}
+	evidence = append(evidence, workloadEvidence("status_generation", "unreported"))
+	if corroborating != nil {
+		evidence = addEventEvidence(evidence, *corroborating)
+		return severity, "A recent controller event corroborates a reported HPA scaling problem", evidence
+	}
+	return model.Info, "The HPA has a recent reported scaling condition without a verified specification generation", evidence
+}
+
+func corroboratingHPAEvent(hpa model.HPAEvidence, condition model.BriefCondition, index workloadIndex) *model.Event {
+	if hpa.Resource.UID == "" || condition.Status != "False" || !model.HPAWarningReason(condition.Reason) {
+		return nil
+	}
+	for _, event := range index.events[locateWorkload(hpa.Resource)] {
+		if event.Resource.UID != hpa.Resource.UID || event.Time.Before(hpa.Created) ||
+			event.Time.Add(2*time.Second).Before(condition.Transition) {
+			continue
+		}
+		if event.Reason == condition.Reason || condition.Reason == "FailedUpdateScale" && event.Reason == "FailedRescale" {
+			return &event
+		}
+	}
+	return nil
 }
 
 func hpaConditions(hpa model.HPAEvidence, check *model.CheckResult) (model.Severity, string, []model.Evidence) {
@@ -240,6 +293,7 @@ func analyzeAdmission(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		}
 	}
 	controllers := admissionControllers(s)
+	limits := indexedLimitRanges(s.Expansion.LimitRanges)
 	type admissionKey struct {
 		resource                                    model.Resource
 		constraint, quota, resourceName, limitScope string
@@ -272,7 +326,9 @@ func analyzeAdmission(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 			}
 		case "minimum", "maximum", "maximum_ratio":
 			evidence = append(evidence, workloadEvidence("resource", observed.ResourceName), workloadEvidence("limit_scope", observed.LimitScope))
-			candidates := matchingLimitRanges(s, observed, target.id.Namespace)
+			key := limitEvidenceKey{target.id.Namespace, observed.LimitScope, observed.ResourceName, observed.Constraint}
+			created := limits[key]
+			candidates := sort.Search(len(created), func(i int) bool { return created[i].After(observed.Event.Time) })
 			if candidates > 0 {
 				severity = model.Warning
 				evidence = append(evidence, workloadEvidence("matching_limit_ranges", strconv.Itoa(candidates)))
@@ -290,20 +346,24 @@ func analyzeAdmission(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 	return findings, check
 }
 
-func matchingLimitRanges(s model.Snapshot, observed model.AdmissionEventEvidence, namespace string) int {
-	var matches int
-	for _, limits := range s.Expansion.LimitRanges {
-		if limits.Resource.Namespace != namespace || limits.Created.After(observed.Event.Time) {
-			continue
-		}
+type limitEvidenceKey struct{ namespace, scope, resource, constraint string }
+
+func indexedLimitRanges(ranges []model.LimitRangeEvidence) map[limitEvidenceKey][]time.Time {
+	indexed := map[limitEvidenceKey][]time.Time{}
+	for _, limits := range ranges {
+		seen := map[limitEvidenceKey]bool{}
 		for _, constraint := range limits.Constraints {
-			if constraint.Scope == observed.LimitScope && constraint.Resource == observed.ResourceName && constraint.Type == observed.Constraint {
-				matches++
-				break
+			key := limitEvidenceKey{limits.Resource.Namespace, constraint.Scope, constraint.Resource, constraint.Type}
+			if !seen[key] {
+				indexed[key] = append(indexed[key], limits.Created)
+				seen[key] = true
 			}
 		}
 	}
-	return matches
+	for _, candidates := range indexed {
+		slices.SortFunc(candidates, time.Time.Compare)
+	}
+	return indexed
 }
 
 func recentTimedReference(s model.Snapshot, event model.TimedReference, target model.Resource, created time.Time) bool {

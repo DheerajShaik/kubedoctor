@@ -42,7 +42,7 @@ func analyzeExpansion(s model.Snapshot, index workloadIndex) ([]model.Finding, [
 		workloadResult(analyzeStatefulSets(s)),
 		workloadResult(analyzeJobs(s)),
 		workloadResult(analyzeCronJobs(s, index)),
-		workloadResult(analyzeHPAs(s)),
+		workloadResult(analyzeHPAs(s, index)),
 		workloadResult(analyzeAdmission(s)),
 		workloadResult(analyzeRolloutProbes(s, index)),
 		workloadResult(analyzeServiceIdentities(s)),
@@ -149,7 +149,7 @@ func analyzeStatefulSets(s model.Snapshot) ([]model.Finding, model.CheckResult) 
 }
 
 func statefulProgress(set model.StatefulSetEvidence, pods []*core.Pod, claims map[configLocator]*core.PersistentVolumeClaim, modes map[string]storage.VolumeBindingMode, s model.Snapshot, check *model.CheckResult) (evidence []model.Evidence, delayed bool, newest time.Time) {
-	var lowest, observed int64 = 1 << 62, 0
+	var lowest int64 = 1 << 62
 	for _, pod := range pods {
 		ordinalText, valid := strings.CutPrefix(pod.Name, set.Resource.Name+"-")
 		ordinal, err := strconv.ParseInt(ordinalText, 10, 32)
@@ -195,8 +195,8 @@ func statefulProgress(set model.StatefulSetEvidence, pods []*core.Pod, claims ma
 		if len(block) == 0 || ordinal >= lowest {
 			continue
 		}
-		lowest, observed = ordinal, ordinal
-		evidence = append([]model.Evidence{workloadEvidence("owned_pod", pod.Name), countEvidence("ordinal", observed)}, block...)
+		lowest = ordinal
+		evidence = append([]model.Evidence{workloadEvidence("owned_pod", pod.Name), countEvidence("ordinal", ordinal)}, block...)
 	}
 	return evidence, delayed, newest
 }
@@ -279,7 +279,7 @@ func analyzeJobs(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 			if observedWithin(s.CollectedAt, failure.Transition, warningHorizon) {
 				severity = model.Warning
 			}
-		} else if job.Suspended || job.Parallelism != nil && *job.Parallelism == 0 {
+		} else if job.Suspended || trueCondition(job.Conditions, "Suspended") != nil || job.Parallelism != nil && *job.Parallelism == 0 {
 			continue
 		} else if job.DeadlineSeconds != nil && *job.DeadlineSeconds > 0 && !job.Started.IsZero() && job.Active > 0 &&
 			int64(s.CollectedAt.Sub(job.Started)/time.Second) >= *job.DeadlineSeconds {
@@ -338,7 +338,7 @@ func analyzeCronJobs(s model.Snapshot, index workloadIndex) ([]model.Finding, mo
 		if cron.Suspended {
 			symptom = "The CronJob is suspended for future schedules"
 			evidence = append(evidence, workloadEvidence("suspended", "true"))
-		} else if event, ok := index.recentEvent(cron.Resource, cron.Created, "MissSchedule", "TooManyMissedTimes", "UnknownTimeZone", "FailedCreate"); ok {
+		} else if event, ok := index.recentEvent(cron.Resource, cron.Created, "MissSchedule", "TooManyMissedTimes", "UnknownTimeZone", "FailedCreate"); ok && !event.Time.Before(cron.LastScheduled) {
 			symptom, severity = "The CronJob controller recently reported a scheduling or creation problem", model.Warning
 			evidence = addEventEvidence(evidence, event)
 		} else if event, ok := index.recentEvent(cron.Resource, cron.Created, "JobAlreadyActive"); ok && cron.Concurrency == "Forbid" {
@@ -347,12 +347,22 @@ func analyzeCronJobs(s model.Snapshot, index workloadIndex) ([]model.Finding, mo
 		}
 		var newest *model.BriefCondition
 		var recentChild model.JobEvidence
+		lastSuccess := cron.LastSuccessful
+		for _, child := range children[cron.Resource] {
+			if completion := trueCondition(child.Conditions, "Complete"); completion != nil {
+				for _, timestamp := range []time.Time{child.Completed, completion.Transition} {
+					if timestamp.After(lastSuccess) && !timestamp.After(s.CollectedAt) {
+						lastSuccess = timestamp
+					}
+				}
+			}
+		}
 		for _, child := range children[cron.Resource] {
 			if child.Deleting || trueCondition(child.Conditions, "Complete", "SuccessCriteriaMet") != nil {
 				continue
 			}
 			failure := trueCondition(child.Conditions, "Failed", "FailureTarget")
-			if failure == nil || !observedWithin(s.CollectedAt, failure.Transition, warningHorizon) || !failure.Transition.After(cron.LastSuccessful) {
+			if failure == nil || !observedWithin(s.CollectedAt, failure.Transition, warningHorizon) || !failure.Transition.After(lastSuccess) {
 				continue
 			}
 			if newest == nil || failure.Transition.After(newest.Transition) || failure.Transition.Equal(newest.Transition) && child.Resource.Name < recentChild.Resource.Name {

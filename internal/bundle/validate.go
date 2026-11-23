@@ -505,7 +505,8 @@ func validNetworkPolicy(s networkPolicy) bool {
 
 func validEvent(scope model.Scope, hosts map[string]bool, event classifiedEvent) bool {
 	r := event.Resource
-	if !validResource(r) || event.Count < 0 || !validEventReason(event.Reason) ||
+	reasonValid := validEventReason(event.Reason) || r.Kind == "HorizontalPodAutoscaler" && model.HPAWarningReason(event.Reason)
+	if !validResource(r) || event.Count < 0 || !reasonValid ||
 		!oneOf(event.TimeBasis, "", "series_last_observed", "last_reported", "event_time", "first_reported", "event_object_created") {
 		return false
 	}

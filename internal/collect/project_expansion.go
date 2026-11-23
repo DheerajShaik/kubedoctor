@@ -278,7 +278,8 @@ func projectNodeLocalPod(pod core.Pod) model.NodeLocalPodEvidence {
 // An admission failure is kept only as a structured, recognized Kubernetes
 // rejection. The remainder of the message can contain arbitrary API text.
 var admissionPrefix = regexp.MustCompile(`^(?:Error creating: )?(?:pods|persistentvolumeclaims) "[a-z0-9.-]{1,253}" is forbidden: (.+)$`)
-var rangeRejection = regexp.MustCompile(`^(maximum|minimum|max limit to request ratio) (cpu|memory|ephemeral-storage|storage) usage per (Container|Pod|PersistentVolumeClaim) is `)
+var statefulAdmissionPrefix = regexp.MustCompile(`^create (?:Pod [a-z0-9.-]{1,253}|Claim [a-z0-9.-]{1,253} for Pod [a-z0-9.-]{1,253}) in StatefulSet ([a-z0-9.-]{1,253}) failed error: (.+)$`)
+var rangeRejection = regexp.MustCompile(`^(maximum|minimum) (cpu|memory|ephemeral-storage|storage) usage per (Container|Pod|PersistentVolumeClaim) is `)
 var ratioRejection = regexp.MustCompile(`^(cpu|memory|ephemeral-storage|storage) max limit to request ratio per (Container|Pod|PersistentVolumeClaim) is `)
 
 func projectAdmissionEvent(observed model.Event, raw core.Event) *model.AdmissionEventEvidence {
@@ -286,20 +287,23 @@ func projectAdmissionEvent(observed model.Event, raw core.Event) *model.Admissio
 		allowed(observed.Resource.Kind, "ReplicaSet", "Deployment", "StatefulSet", "DaemonSet", "Job") == "" {
 		return nil
 	}
-	rejection := admissionPrefix.FindStringSubmatch(raw.Message)
+	message := raw.Message
+	if observed.Resource.Kind == "StatefulSet" {
+		if matches := statefulAdmissionPrefix.FindStringSubmatch(message); len(matches) == 3 && matches[1] == observed.Resource.Name {
+			message = matches[2]
+		}
+	}
+	rejection := admissionPrefix.FindStringSubmatch(message)
 	if len(rejection) == 0 {
 		return nil
 	}
 	out := &model.AdmissionEventEvidence{Event: model.TimedReference{Resource: observed.Resource, Time: observed.Time, Count: observed.Count}}
 	for _, prefix := range []struct {
-		message, constraint string
-	}{{"exceeded quota: ", "quota_exceeded"}, {"failed quota: ", "quota_required_resources"}} {
+		message, constraint, separator, suffix string
+	}{{"exceeded quota: ", "quota_exceeded", ", ", "requested: "}, {"failed quota: ", "quota_required_resources", ": ", "must specify "}} {
 		if rest, ok := strings.CutPrefix(rejection[1], prefix.message); ok {
-			quota, _, hasSuffix := strings.Cut(rest, ",")
-			if !hasSuffix {
-				quota, _, hasSuffix = strings.Cut(rest, ":")
-			}
-			if !hasSuffix || !validResourceName(quota) {
+			quota, details, hasSuffix := strings.Cut(rest, prefix.separator)
+			if !hasSuffix || !validResourceName(quota) || !strings.HasPrefix(details, prefix.suffix) {
 				return nil
 			}
 			out.Constraint, out.Quota = prefix.constraint, quota

@@ -40,8 +40,10 @@ run_deep_diagnostics() {
     any(.findings[]; .rule_id == "statefulset-rollout" and .resource.name == "stateful-image") and
     any(.findings[]; .rule_id == "job-execution" and .resource.name == "fixture-failed") and
     any(.findings[]; .rule_id == "cronjob-scheduling" and .resource.name == "fixture-suspended" and .severity == "info") and
-    any(.findings[]; .rule_id == "hpa-scaling" and .resource.name == "stateful-image" and
-      any(.evidence[]; .field == "condition_reason" and .value == "FailedGetResourceMetric")) and
+    any(.findings[]; .rule_id == "hpa-scaling" and .resource.name == "stateful-image" and .severity == "warning" and
+      any(.evidence[]; .field == "condition_reason" and .value == "FailedGetResourceMetric") and
+      any(.evidence[]; .field == "event_reason" and .value == "FailedGetResourceMetric") and
+      any(.evidence[]; .field == "status_generation" and .value == "unreported")) and
     any(.findings[]; .rule_id == "rollout-probes" and (.resource.name | startswith("probe-trip-"))) and
     any(.findings[]; .rule_id == "pvc-binding" and .resource.name == "missing-storage") and
     any(.findings[]; .rule_id == "networkpolicy-named-ports")'

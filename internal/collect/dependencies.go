@@ -170,7 +170,7 @@ func (c *Collector) collectDNSConfig(ctx context.Context, s *model.Snapshot) []m
 		case err == nil && configMap.Name == object && configMap.Namespace == dnsNamespace:
 			_, hasCorefile := configMap.Data["Corefile"]
 			s.DNSConfig = append(s.DNSConfig, model.DNSConfig{
-				Name: object, Namespace: dnsNamespace, HasCorefile: hasCorefile,
+				Name: object, Namespace: dnsNamespace, UID: token(string(configMap.UID)), HasCorefile: hasCorefile,
 			})
 		case err == nil:
 			result = namedObservation(model.SourceDNSConfig, false, object, errUnexpectedNamedObject)

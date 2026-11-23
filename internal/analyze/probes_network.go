@@ -7,6 +7,7 @@ import (
 	"github.com/DheerajShaik/kubedoctor/internal/model"
 	core "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
+	networking "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -290,10 +291,16 @@ func analyzePolicyPorts(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		}
 	}
 	var findings []model.Finding
+	const selectionBudget = 250_000
+	remainingSelections := selectionBudget
 	for i := range s.NetworkPolicies {
 		policy := &s.NetworkPolicies[i]
 		ingress, _ := policyDirections(policy.Spec)
 		if policy.DeletionTimestamp != nil || !ingress {
+			continue
+		}
+		ports := namedPolicyPorts(policy.Spec.Ingress)
+		if len(ports) == 0 {
 			continue
 		}
 		selector, err := metav1.LabelSelectorAsSelector(&policy.Spec.PodSelector)
@@ -301,6 +308,11 @@ func analyzePolicyPorts(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 			workloadUncertain(&check, "A NetworkPolicy Pod selector could not be evaluated")
 			continue
 		}
+		if len(pods[policy.Namespace]) > remainingSelections {
+			workloadUncertain(&check, "The static NetworkPolicy selector evaluation budget was reached")
+			break
+		}
+		remainingSelections -= len(pods[policy.Namespace])
 		var selected []*core.Pod
 		for _, pod := range pods[policy.Namespace] {
 			if selector.Matches(labels.Set(pod.Labels)) {
@@ -310,37 +322,50 @@ func analyzePolicyPorts(s model.Snapshot) ([]model.Finding, model.CheckResult) {
 		if len(selected) == 0 {
 			continue
 		}
-		type namedPort struct {
-			name     string
-			protocol core.Protocol
-		}
-		seen := map[namedPort]bool{}
-		for _, rule := range policy.Spec.Ingress {
-			for _, port := range rule.Ports {
-				if port.Port == nil || port.Port.Type != intstr.String || port.Port.StrVal == "" {
-					continue
-				}
-				protocol := core.ProtocolTCP
-				if port.Protocol != nil {
-					protocol = *port.Protocol
-				}
-				key := namedPort{port.Port.StrVal, protocol}
-				if seen[key] {
-					continue
-				}
-				seen[key] = true
-				if slices.ContainsFunc(selected, func(pod *core.Pod) bool { return hasNamedIngressPort(pod, key.name, key.protocol) }) {
-					continue
-				}
-				finding := workloadFinding(policyPortRule, model.Identity("NetworkPolicy", policy), model.Info,
-					"A named ingress port is undeclared on all visibly selected Pods",
-					"Compare the ingress rule with the selected Pods' named ports and protocol. Other policies may allow traffic, and enforcement depends on the networking implementation.",
-					workloadEvidence("named_port", key.name), workloadEvidence("protocol", string(key.protocol)), countEvidence("selected_pods", int64(len(selected))))
-				findings = append(findings, finding)
+		for _, port := range ports {
+			if len(selected) > remainingSelections {
+				workloadUncertain(&check, "The static named ingress port evaluation budget was reached")
+				return findings, check
 			}
+			remainingSelections -= len(selected)
+			if slices.ContainsFunc(selected, func(pod *core.Pod) bool { return hasNamedIngressPort(pod, port.name, port.protocol) }) {
+				continue
+			}
+			finding := workloadFinding(policyPortRule, model.Identity("NetworkPolicy", policy), model.Info,
+				"A named ingress port is undeclared on all visibly selected Pods",
+				"Compare the ingress rule with the selected Pods' named ports and protocol. Other policies may allow traffic, and enforcement depends on the networking implementation.",
+				workloadEvidence("named_port", port.name), workloadEvidence("protocol", string(port.protocol)), countEvidence("selected_pods", int64(len(selected))))
+			findings = append(findings, finding)
 		}
 	}
 	return findings, check
+}
+
+type declaredPort struct {
+	name     string
+	protocol core.Protocol
+}
+
+func namedPolicyPorts(rules []networking.NetworkPolicyIngressRule) []declaredPort {
+	seen := map[declaredPort]bool{}
+	var named []declaredPort
+	for _, rule := range rules {
+		for _, port := range rule.Ports {
+			if port.Port == nil || port.Port.Type != intstr.String || port.Port.StrVal == "" {
+				continue
+			}
+			protocol := core.ProtocolTCP
+			if port.Protocol != nil {
+				protocol = *port.Protocol
+			}
+			key := declaredPort{port.Port.StrVal, protocol}
+			if !seen[key] {
+				seen[key] = true
+				named = append(named, key)
+			}
+		}
+	}
+	return named
 }
 
 func hasNamedIngressPort(pod *core.Pod, name string, protocol core.Protocol) bool {

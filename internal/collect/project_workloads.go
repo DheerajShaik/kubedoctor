@@ -399,7 +399,7 @@ func projectStorageClass(value storage.StorageClass) storage.StorageClass {
 }
 
 func projectConfigMap(value core.ConfigMap) model.ConfigMap {
-	out := model.ConfigMap{Namespace: name(value.Namespace), Name: name(value.Name)}
+	out := model.ConfigMap{UID: token(string(value.UID)), Namespace: name(value.Namespace), Name: name(value.Name)}
 	for key := range value.Data {
 		if safe := token(key); safe != "" {
 			out.Keys = append(out.Keys, safe)

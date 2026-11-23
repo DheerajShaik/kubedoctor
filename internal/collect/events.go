@@ -52,6 +52,10 @@ func eventProjector(pods []core.Pod) func(core.Event) (model.Event, bool) {
 func eventReason(event core.Event) string {
 	switch event.Type {
 	case core.EventTypeWarning:
+		if event.InvolvedObject.Kind == "HorizontalPodAutoscaler" &&
+			(event.Source.Component == "horizontal-pod-autoscaler" || event.ReportingController == "horizontal-pod-autoscaler") && model.HPAWarningReason(event.Reason) {
+			return event.Reason
+		}
 		return allowed(event.Reason, "FailedScheduling", "FailedMount", "FailedAttachVolume", "FailedBinding", "ProvisioningFailed",
 			"FailedCreate", "FailedDelete", "Failed", "BackOff", "Unhealthy", "Evicted", "NodeNotReady",
 			"FailedCreatePodSandBox", "FailedToRetrieveImagePullSecret", "FailedMapVolume", "MissSchedule", "TooManyMissedTimes", "UnknownTimeZone")

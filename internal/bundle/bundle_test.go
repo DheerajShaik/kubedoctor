@@ -183,9 +183,11 @@ func sampleSnapshot() model.Snapshot {
 			Created: before.Time, Started: before.Time, Failed: 1, Conditions: []model.BriefCondition{{Type: "Failed", Status: "True", Reason: "BackoffLimitExceeded"}}}},
 		CronJobs: []model.CronJobEvidence{{Resource: model.Resource{Kind: "CronJob", Namespace: "payments", Name: "sync"},
 			Created: before.Time, Concurrency: "Forbid", Suspended: true}},
-		HPAs: []model.HPAEvidence{{Resource: model.Resource{Kind: "HorizontalPodAutoscaler", Namespace: "payments", Name: "frontend"},
+		HPAs: []model.HPAEvidence{{Resource: model.Resource{Kind: "HorizontalPodAutoscaler", Namespace: "payments", Name: "frontend", UID: "hpa-uid"}, Created: before.Time,
 			Target: model.Resource{Kind: "Deployment", Namespace: "payments", Name: "frontend"}, TargetAPIVersion: "apps/v1",
-			MinReplicas: 1, MaxReplicas: 10, UtilizationTargets: []model.HPAUtilizationTarget{{Resource: "cpu", Percent: 80}}}},
+			MinReplicas: 1, MaxReplicas: 10, UtilizationTargets: []model.HPAUtilizationTarget{{Resource: "cpu", Percent: 80}},
+			Conditions: []model.BriefCondition{{Type: "AbleToScale", Status: "True", Transition: now.Add(-time.Minute)},
+				{Type: "ScalingActive", Status: "False", Reason: "FailedGetResourceMetric", Transition: now.Add(-time.Minute)}}}},
 		Quotas: []model.QuotaEvidence{{Resource: model.Resource{Kind: "ResourceQuota", Namespace: "payments", Name: "bounded"},
 			Capacities: []model.QuotaCapacity{{Resource: "pods", Hard: "10", Used: "10", Current: true}}}},
 		LimitRanges: []model.LimitRangeEvidence{{Resource: model.Resource{Kind: "LimitRange", Namespace: "payments", Name: "standard"},
@@ -193,6 +195,7 @@ func sampleSnapshot() model.Snapshot {
 		Probes: []model.PodProbeEvidence{{Pod: model.Identity("Pod", &pod),
 			Containers: []model.ContainerProbe{{Name: "server", Role: "application", Kinds: []string{"readiness"}}}}},
 	}
+	s.Events = append(s.Events, model.Event{Resource: s.Expansion.HPAs[0].Resource, Reason: "FailedGetResourceMetric", Time: now.Add(-time.Second), TimeBasis: "last_reported", Count: 2})
 	return s
 }
 
@@ -211,6 +214,9 @@ func encodedBundle(t testing.TB) (*Bundle, []byte) {
 
 func TestCaptureUsesOnlyReviewedEvidenceAndReplaysLiveReport(t *testing.T) {
 	live := engine.Analyze(sampleSnapshot())
+	if !slices.ContainsFunc(live.Findings, func(f model.Finding) bool { return f.RuleID == "hpa-scaling" && f.Severity == model.Warning }) {
+		t.Fatal("fixture is missing corroborated HPA evidence")
+	}
 	_, raw := encodedBundle(t)
 	for _, forbidden := range []string{
 		marker, "UNSAFE_LITERAL", "unreferenced-settings", "private.example", "192.0.2.", "containerd://",

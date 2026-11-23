@@ -130,7 +130,7 @@ func TestHPAConditionsTargetAndUtilization(t *testing.T) {
 	set := model.StatefulSetEvidence{Resource: expansionID("StatefulSet", "payments", "queue"), Generation: 1, ObservedGeneration: 1, Ready: 1, Available: 1, Desired: 1}
 	s.Expansion.StatefulSets = []model.StatefulSetEvidence{set}
 	hpa := model.HPAEvidence{Resource: expansionID("HorizontalPodAutoscaler", "payments", "worker-scaler"), Target: set.Resource, TargetAPIVersion: "apps/v1",
-		Generation: 1, CurrentReplicas: 1, DesiredReplicas: 1, MinReplicas: 1, MaxReplicas: 2,
+		Generation: 1, ObservedGeneration: 1, CurrentReplicas: 1, DesiredReplicas: 1, MinReplicas: 1, MaxReplicas: 2,
 		UtilizationTargets: []model.HPAUtilizationTarget{{Resource: "cpu", Percent: 70}},
 		Conditions:         []model.BriefCondition{{Type: "AbleToScale", Status: "True"}, {Type: "ScalingActive", Status: "False", Reason: "FailedGetResourceMetric"}}}
 	hpa.Target.UID = ""
@@ -158,6 +158,39 @@ func TestHPAConditionsTargetAndUtilization(t *testing.T) {
 	workloadExpect(t, s, hpaRule, model.Inconclusive, 0)
 	s.Expansion.StatefulSets = nil
 	setWorkloadCoverage(&s, model.SourceStatefulSets, model.PermissionDenied)
+	workloadExpect(t, s, hpaRule, model.Inconclusive, 0)
+}
+
+func TestUpstreamHPAWithUnversionedStatus(t *testing.T) {
+	s := expansionFixture()
+	set := model.StatefulSetEvidence{Resource: expansionID("StatefulSet", "payments", "queue"), Desired: 1}
+	s.Expansion.StatefulSets = []model.StatefulSetEvidence{set}
+	id := expansionID("HorizontalPodAutoscaler", "payments", "queue-scaler")
+	transition := workloadTestTime.Add(-time.Minute)
+	s.Expansion.HPAs = []model.HPAEvidence{{Resource: id, Target: set.Resource, TargetAPIVersion: "apps/v1",
+		Created: workloadTestTime.Add(-2 * time.Hour), CurrentReplicas: 1, MinReplicas: 1, MaxReplicas: 2,
+		Conditions: []model.BriefCondition{{Type: "AbleToScale", Status: "True", Transition: transition},
+			{Type: "ScalingActive", Status: "False", Reason: "FailedGetResourceMetric", Transition: transition}},
+	}}
+	initial := workloadExpect(t, s, hpaRule, model.Inconclusive, 1)[0]
+	if initial.Severity != model.Info || workloadEvidenceValue(initial, "status_generation") != "unreported" {
+		t.Fatalf("unversioned condition was overstated or discarded: %+v", initial)
+	}
+	s.Events = []model.Event{{Resource: id, Reason: "FailedGetResourceMetric", Time: transition.Add(-time.Second), Count: 2}}
+	corroborated := workloadExpect(t, s, hpaRule, model.Inconclusive, 1)[0]
+	if corroborated.Severity != model.Warning || workloadEvidenceValue(corroborated, "event_reason") != "FailedGetResourceMetric" ||
+		workloadEvidenceValue(corroborated, "status_generation") != "unreported" {
+		t.Fatalf("fresh same-UID metric error was not corroborated: %+v", corroborated)
+	}
+	s.Events[0].Resource.UID = "different-hpa-uid"
+	if other := workloadExpect(t, s, hpaRule, model.Inconclusive, 1)[0]; other.Severity != model.Info || workloadEvidenceValue(other, "event_reason") != "" {
+		t.Fatalf("old UID corroborated a replacement HPA: %+v", other)
+	}
+	s.Events[0].Resource.UID = id.UID
+	s.Expansion.HPAs[0].Conditions[1] = model.BriefCondition{Type: "ScalingActive", Status: "True", Transition: workloadTestTime.Add(-30 * time.Second)}
+	workloadExpect(t, s, hpaRule, model.Inconclusive, 0)
+	s.Expansion.HPAs[0].Conditions[1] = model.BriefCondition{Type: "ScalingActive", Status: "False", Reason: "FailedGetResourceMetric", Transition: transition}
+	s.Expansion.HPAs[0].Generation, s.Expansion.HPAs[0].ObservedGeneration = 2, 1
 	workloadExpect(t, s, hpaRule, model.Inconclusive, 0)
 }
 
