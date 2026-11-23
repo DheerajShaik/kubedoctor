@@ -18,17 +18,26 @@ The three initial live jobs reached the expanded diagnostic fixture. Each detect
 
 ## Reproducible synthetic timings
 
-Five iterations per benchmark on Linux amd64, AMD EPYC 9V74, Go 1.27.4 and `GOMAXPROCS=4`. Allocations are total bytes allocated per operation and do not represent peak memory or production capacity.
+Measured on detached PR revision `2c399fe31acb120e37b78088960723b3ee242521` with five iterations per benchmark on Linux amd64, AMD EPYC 9V74, Go 1.27.4 and `GOMAXPROCS=4`. Allocations are total bytes allocated per operation and do not represent peak memory or production capacity.
 
 | Operation | Fixture | Time per operation | Bytes allocated |
 | --- | --- | --- | --- |
-| Collection only | Loopback API with 250 Pods over two pages, 28 HTTP requests | 18.75 ms | 3,894,446 |
-| Core diagnostic engine | 1,000 synthetic Pods | 3.89 ms | 2,257,769 |
-| Verified bundle replay | 1,000 synthetic Pods | 102.44 ms | 35,328,532 |
-| Build an investigation | 500 Pods, 50 Services, 500 events | 15.38 ms | 3,155,406 |
-| Compare investigations | Two synthetic investigation inputs | 3.39 ms | 2,142,454 |
-| Render standalone HTML | Two findings, one incident, two historical samples | 0.25 ms | 58,665 |
+| Collection only | Loopback API with 250 Pods over two pages, 28 HTTP requests | 25.75 ms | 3,934,102 |
+| Core diagnostic engine | 1,000 synthetic Pods | 4.08 ms | 2,257,542 |
+| Verified bundle replay | 1,000 synthetic Pods | 50.50 ms | 35,328,977 |
+| Build an investigation | 500 Pods, 50 Services, 500 events | 9.41 ms | 3,155,377 |
+| Compare investigations | Two synthetic investigation inputs | 4.44 ms | 2,142,508 |
+| Render standalone HTML | Two findings, one incident, two historical samples | 0.23 ms | 58,633 |
 
 ```sh
 GOMAXPROCS=4 go test -run '^$' -bench 'Benchmark(Collection250Pods|SyntheticCluster1000Pods|Replay1000Pods|InvestigationBuild|InvestigationCompare|RenderInvestigation)$' -benchtime=5x -benchmem ./internal/collect ./internal/engine ./internal/bundle ./internal/investigation ./internal/htmlreport
 ```
+
+
+## Integrated HPA correction
+
+At `2c399fe31acb120e37b78088960723b3ee242521`, the detached checkout passed the full unit and race suites, vet, workflow lint, byte-for-byte example regeneration, and the local govulncheck scan. A 20-second, two-worker parser fuzz run passed 137,406 executions. The Chromium preview passed comparison and investigation JSON/HTML parity, filter, mobile, keyboard, offline, and printing checks. The corrected HPA fixture exercises same-UID controller warning evidence on capture and offline replay. [Hosted verification for this revision](https://github.com/DheerajShaik/kubedoctor/actions/runs/45156572042)
+
+The second hosted run reached the repaired HPA assertion on all three clusters. The 1.36.4 NodeLocal job verified daemon availability and a disposable workload lookup. The Cilium job verified allowed and denied fixture traffic with positive controls. [Cilium job log](https://github.com/DheerajShaik/kubedoctor/actions/runs/45156572042/job/137630936104) After the missing ConfigMap was created, the recovery harness read the previously recorded rollout deadline before the kubelet and controller reconciled. The updated harness waits for the original Pod UID to become Ready and verifies available replicas and an affirmative Deployment progress condition before requesting rollout status. [NodeLocal job log](https://github.com/DheerajShaik/kubedoctor/actions/runs/45156572042/job/137630936065)
+
+External Codex review of `2c399fe` identified lost standalone ReplicaSet status and an incorrect repair classification when admission or scheduling events age out. The follow-up retains controller generation/readiness through collection and replay and distinguishes event expiry from verified recovery. Review receipts and dispositions remain attached to the PR. [External review](https://github.com/DheerajShaik/kubedoctor/pull/2#pullrequestreview-6020045003)

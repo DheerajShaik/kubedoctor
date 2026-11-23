@@ -1,8 +1,10 @@
 # Project status
 
-## v0.2.0 in development
+## v0.2.0 incident investigation
 
-Baseline `2f31b93` and the v0.1.0 draft verified on GitHub. The repository is public. The v0.2.0 feature branch is `codex/v0.2-investigations`. The first integrated revision is `bca2c25` on [PR #2](https://github.com/DheerajShaik/kubedoctor/pull/2). [Verification record](releases/v0.2.0/VALIDATION.md) tracks executed tests and limits. See the [release charter](releases/v0.2.0/RELEASE_CHARTER.md), [design and public contracts](releases/v0.2.0/DESIGN.md), and [acceptance matrix](releases/v0.2.0/ACCEPTANCE.md).
+The release includes 26 diagnostic checks, minimized evidence capture, offline reproduction, controller-aware comparison, standalone reports, optional historical sizing and scoped MCP investigation. The repository is public. The release workflow prepares binaries and a checksum manifest in an unpublished draft after the release revision passes its gates.
+
+[PR #2](https://github.com/DheerajShaik/kubedoctor/pull/2) records the final reviewed revision, merge state and hosted CI. The [Actions history](https://github.com/DheerajShaik/kubedoctor/actions/workflows/ci.yml?query=branch%3Amain) records default-branch verification. The [releases page](https://github.com/DheerajShaik/kubedoctor/releases) shows the unpublished draft to authorized collaborators after packaging. See [executed validation and benchmark results](releases/v0.2.0/VALIDATION.md), the [acceptance matrix](releases/v0.2.0/ACCEPTANCE.md), the [release charter](releases/v0.2.0/RELEASE_CHARTER.md), and the [design](releases/v0.2.0/DESIGN.md).
 
 ## v0.1.0 historical checkpoints
 

@@ -15,7 +15,8 @@ run_deep_diagnostics() {
   local status namespace
   sed "s|__COREDNS_IMAGE__|$image_ready|g" test/integration/expansion.yaml | mutate apply -f -
   kube -n doctor-rules wait --for=condition=Failed job/fixture-failed --timeout=120s
-  kube -n doctor-rules wait --for=create --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=ImagePullBackOff pod/stateful-image-0 --timeout=120s
+  kube -n doctor-rules wait --for=create pod/stateful-image-0 --timeout=120s
+  kube -n doctor-rules wait --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=ImagePullBackOff pod/stateful-image-0 --timeout=120s
   kube -n doctor-rules wait --for=condition=ScalingActive=false hpa/stateful-image --timeout=120s
   kube -n doctor-rules wait --for=create event \
     --field-selector involvedObject.kind=HorizontalPodAutoscaler,involvedObject.name=stateful-image,reason=FailedGetResourceMetric \
@@ -232,15 +233,19 @@ run_restricted_comparison() {
 }
 
 run_connected_incident() {
-  local evidence_dir="$test_dir/evidence" deployment_uid pod_uid
+  local evidence_dir="$test_dir/evidence" deployment_uid pod_identity pod_name pod_uid
   mkdir "$evidence_dir"
   sed "s|__COREDNS_IMAGE__|$image_ready|g" test/integration/incident.yaml | mutate apply -f -
-  kube -n doctor-incident wait --for=create --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=CreateContainerConfigError pod \
-    -l app=checkout --timeout=120s
+  kube -n doctor-incident wait --for=create pod -l app=checkout --timeout=120s
+  kube -n doctor-incident wait --for=jsonpath='{.status.containerStatuses[0].state.waiting.reason}'=CreateContainerConfigError \
+    pod -l app=checkout --timeout=120s
   kube -n doctor-incident wait --for=jsonpath='{.status.conditions[?(@.type=="Progressing")].reason}'=ProgressDeadlineExceeded deployment/checkout --timeout=120s
   wait_service_reconciliation doctor-incident checkout
   deployment_uid=$(kube -n doctor-incident get deployment checkout -o jsonpath='{.metadata.uid}')
-  pod_uid=$(kube -n doctor-incident get pod -l app=checkout -o json | jq -er '.items | if length == 1 then .[0].metadata.uid else error("expected one Pod") end')
+  pod_identity=$(kube -n doctor-incident get pod -l app=checkout -o json |
+    jq -ec '.items | if length == 1 then .[0].metadata | {name, uid} else error("expected one Pod") end')
+  pod_name=$(jq -er '.name' <<<"$pod_identity")
+  pod_uid=$(jq -er '.uid' <<<"$pod_identity")
   kubectl doctor capture namespace doctor-incident --context "$context" --timeout 45s \
     --bundle "$evidence_dir/before.bundle.json" -o json >"$evidence_dir/before.json"
   kubectl doctor inspect "$evidence_dir/before.bundle.json" >"$test_dir/bundle-inventory.json"
@@ -265,11 +270,31 @@ run_connected_incident() {
 
   mutate -n doctor-incident create configmap checkout-dependency \
     --from-literal=token=KUBEDOCTOR_INTEGRATION_CREDENTIAL_SENTINEL
-  kube -n doctor-incident rollout status deployment/checkout --timeout=180s
+  # The Deployment can retain ProgressDeadlineExceeded until a successful
+  # kubelet start and controller update. Wait for the repaired Pod first.
+  kube -n doctor-incident wait --for=condition=Ready "pod/$pod_name" --timeout=120s
+  kube -n doctor-incident get pod "$pod_name" -o json |
+    jq -e --arg uid "$pod_uid" --arg image "$image_ready" '
+      .metadata.uid == $uid and any(.status.conditions[]; .type == "Ready" and .status == "True") and
+      any(.spec.containers[]; .name == "app" and .image == $image and
+        any(.ports[]; .name == "health" and .containerPort == 8080))' >/dev/null
+  kube -n doctor-incident wait --for=jsonpath='{.status.availableReplicas}'=1 deployment/checkout --timeout=120s
+  kube -n doctor-incident wait --for=jsonpath='{.status.conditions[?(@.type=="Progressing")].reason}'=NewReplicaSetAvailable \
+    deployment/checkout --timeout=120s
+  kube -n doctor-incident get deployment checkout -o json |
+    jq -e --arg uid "$deployment_uid" '
+      .metadata.uid == $uid and .status.observedGeneration == .metadata.generation and
+      .status.availableReplicas == 1 and
+      any(.status.conditions[]; .type == "Available" and .status == "True") and
+      any(.status.conditions[]; .type == "Progressing" and .status == "True" and .reason == "NewReplicaSetAvailable")' >/dev/null
+  kube -n doctor-incident rollout status deployment/checkout --watch=false
   kube -n doctor-incident wait --for=jsonpath='{.endpoints[0].conditions.ready}'=true endpointslice \
     -l kubernetes.io/service-name=checkout --timeout=120s
-  [[ "$(kube -n doctor-incident get deployment checkout -o jsonpath='{.metadata.uid}')" == "$deployment_uid" ]]
-  [[ "$(kube -n doctor-incident get pod -l app=checkout -o json | jq -er '.items | if length == 1 then .[0].metadata.uid else error("expected one Pod") end')" == "$pod_uid" ]]
+  kube -n doctor-incident get endpointslice -l kubernetes.io/service-name=checkout -o json |
+    jq -e --arg uid "$pod_uid" '
+      any(.items[]; any(.ports[]; .name == "health" and .port == 8080 and .protocol == "TCP") and
+        any(.endpoints[]; .targetRef.uid == $uid and .conditions.ready == true and .conditions.terminating != true))' >/dev/null
+  printf 'Verified the same checkout Pod and Deployment identities reached Ready and serve the expected endpoint port.\n'
   kubectl doctor capture namespace doctor-incident --context "$context" --timeout 45s \
     --bundle "$evidence_dir/after.bundle.json" -o json >"$evidence_dir/after.json"
   kubectl doctor compare "$evidence_dir/before.bundle.json" "$evidence_dir/after.bundle.json" \
