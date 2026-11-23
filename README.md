@@ -12,7 +12,7 @@ kubectl doctor version
 
 ## Install
 
-Download the archive and `SHA256SUMS` for your platform from the private [releases](https://github.com/DheerajShaik/kubedoctor/releases), check the archive's SHA-256, then put `kubectl-doctor` (or `kubectl-doctor.exe` on Windows) on your PATH. The executable also works directly. Run `kubectl plugin list` to check discovery.
+Download the archive and `SHA256SUMS` for your platform from the [releases](https://github.com/DheerajShaik/kubedoctor/releases), check the archive's SHA-256, then put `kubectl-doctor` (or `kubectl-doctor.exe` on Windows) on your PATH. The executable also works directly. Run `kubectl plugin list` to check discovery.
 
 Build from the checkout with the Go version in `go.mod`. On macOS or Linux:
 
