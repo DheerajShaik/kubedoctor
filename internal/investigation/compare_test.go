@@ -253,6 +253,7 @@ func TestComparisonServiceRecoveryRequiresSameApplicableBackend(t *testing.T) {
 			snapshot, report = fixtureSnapshot(baselineTime.Add(time.Minute), true, "pod-uid-a")
 			report.Checks = append(report.Checks, model.CheckResult{ID: "service.ports", Status: model.Checked})
 			slice := discovery.EndpointSlice{ObjectMeta: fixtureMeta("checkout-slice", "slice-uid"), AddressType: discovery.AddressTypeIPv4,
+				Ports:     []discovery.EndpointPort{{Name: new("http"), Port: new(int32(80))}},
 				Endpoints: []discovery.Endpoint{{Addresses: []string{""}, Conditions: discovery.EndpointConditions{Ready: new(true)}}}}
 			slice.Labels[discovery.LabelServiceName] = service.Name
 			slice.OwnerReferences = append(slice.OwnerReferences, owner("Service", &service))

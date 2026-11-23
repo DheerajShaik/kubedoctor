@@ -58,6 +58,7 @@ type ServiceObservation struct {
 	Headless        bool                   `json:"headless"`
 	PublishNotReady bool                   `json:"publish_not_ready"`
 	DeclaredPorts   []ServicePortReference `json:"declared_ports"`
+	identities      *serviceIdentityContinuity
 }
 
 type ServicePortReference struct {

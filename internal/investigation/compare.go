@@ -289,8 +289,14 @@ func recoveryLimitation(left, right compareSnapshot, subject model.Resource, fin
 	if rolloutRule(finding.RuleID) {
 		return rolloutRecoveryLimit(left.inventory[subject], right.inventory[subject], right, finding)
 	}
+	if reason := serviceSelectorRecoveryLimitation(right.inventory[subject], finding); reason != "" {
+		return reason
+	}
 	if !positiveContinuity(left, right, subject, finding) {
 		return "Source coverage alone is insufficient. Fresh status and, for Pod symptoms, comparable active Ready members are needed."
+	}
+	if finding.RuleID == "service.ports" && !right.inv.applicability.configured.services.portReady(finding) {
+		return "The same Service port needs a matching publication on a Ready, nonterminating endpoint."
 	}
 	return podContainerRecoveryLimitation(left, right, subject, finding)
 }
@@ -316,7 +322,7 @@ func positiveContinuity(left, right compareSnapshot, subject model.Resource, fin
 		if handled, current := relevantNonRolloutEvidence(left, right, finding); handled {
 			return current
 		}
-		return true
+		return false
 	}
 	if subject.Kind == "Pod" {
 		return after.Active && after.Ready

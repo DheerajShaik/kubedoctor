@@ -9,12 +9,13 @@ import (
 
 // These facts are rebuilt from normalized bundle evidence on each replay.
 type comparisonApplicability struct {
-	network   networkContinuity
-	nodes     map[model.Resource]nodeConditions
-	pods      podContainerContinuity
-	nodeLocal *nodeLocalContinuity
-	hpas      map[model.Resource]hpaContinuity
-	cronJobs  map[model.Resource]bool
+	configured configuredContinuity
+	network    networkContinuity
+	nodes      map[model.Resource]nodeConditions
+	pods       podContainerContinuity
+	nodeLocal  *nodeLocalContinuity
+	hpas       map[model.Resource]hpaContinuity
+	cronJobs   map[model.Resource]bool
 }
 
 type nodeConditions struct {
@@ -38,11 +39,12 @@ type hpaContinuity struct {
 
 func applicableEvidence(s model.Snapshot, index *inventory) comparisonApplicability {
 	facts := comparisonApplicability{
-		network:  networkComparisonEvidence(s),
-		nodes:    make(map[model.Resource]nodeConditions, len(s.Nodes)),
-		pods:     podContainerEvidence(s, index),
-		hpas:     make(map[model.Resource]hpaContinuity, len(s.Expansion.HPAs)),
-		cronJobs: make(map[model.Resource]bool, len(s.Expansion.CronJobs)),
+		configured: configuredEvidence(s, index),
+		network:    networkComparisonEvidence(s),
+		nodes:      make(map[model.Resource]nodeConditions, len(s.Nodes)),
+		pods:       podContainerEvidence(s, index),
+		hpas:       make(map[model.Resource]hpaContinuity, len(s.Expansion.HPAs)),
+		cronJobs:   make(map[model.Resource]bool, len(s.Expansion.CronJobs)),
 	}
 	for i := range s.Nodes {
 		node := &s.Nodes[i]
@@ -147,7 +149,7 @@ func relevantNonRolloutEvidence(left, right compareSnapshot, finding model.Findi
 	case "hpa-scaling":
 		return true, comparableHPA(left.inv.applicability.hpas[id], facts.hpas[id], right, finding)
 	default:
-		return networkRecoveryEvidence(left, right, finding)
+		return configuredRecoveryEvidence(left, right, finding)
 	}
 }
 

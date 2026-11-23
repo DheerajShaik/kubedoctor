@@ -153,6 +153,7 @@ func newInventory(s model.Snapshot) *inventory {
 	addExpansionInventory(s, index)
 	index.markReadyBackends(s.EndpointSlices)
 	index.markReadyBackends(s.DNSEndpointSlices)
+	index.recordEndpointIdentities(s)
 	return index
 }
 

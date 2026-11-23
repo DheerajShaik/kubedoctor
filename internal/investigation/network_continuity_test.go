@@ -118,7 +118,8 @@ func conventionalDNSSnapshot(publish, endpointReady bool) model.Snapshot {
 	s.DNSEndpointSlices = []discovery.EndpointSlice{{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kube-system", Name: "kube-dns-test", UID: "dns-slice-uid",
-			Labels: map[string]string{discovery.LabelServiceName: service.Name},
+			Labels:          map[string]string{discovery.LabelServiceName: service.Name},
+			OwnerReferences: []metav1.OwnerReference{owner("Service", &service)},
 		},
 		AddressType: discovery.AddressTypeIPv4,
 		Ports: []discovery.EndpointPort{
