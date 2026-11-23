@@ -236,7 +236,7 @@ func classify(change *Change, left, right compareSnapshot, incompatibility strin
 		return true
 	}
 	if historicalOnly(finding) {
-		change.Classification, change.Reason = NoLongerObservable, "The earlier finding is an event, sample, or historical observation. Its absence does not establish repair."
+		change.Classification, change.Reason = NoLongerObservable, "The earlier finding records a historical occurrence or sample. Recovery remains unverified."
 		return false
 	}
 	if !positiveContinuity(left, right, subject, finding) {
@@ -313,12 +313,25 @@ func positiveContinuity(left, right compareSnapshot, subject model.Resource, fin
 }
 
 func historicalOnly(finding model.Finding) bool {
-	if finding.RuleID == "recent-warning-events" || finding.RuleID == "current-pod-usage" {
+	event := evidenceValue(finding, "event_reason") != ""
+	switch finding.RuleID {
+	case "recent-warning-events", "current-pod-usage":
 		return true
+	case "namespace-admission", "rollout-probes":
+		return event
+	case "cronjob-scheduling":
+		return evidenceValue(finding, "suspended") != "true" && (event || evidenceValue(finding, "failed_owned_job") != "")
+	case "configuration-references":
+		return event && evidenceValue(finding, "reference_kind") == "Secret"
+	case "pod-scheduling":
+		return event && evidenceValue(finding, "pod_scheduled") == ""
+	case "pod-containers":
+		return evidenceValue(finding, "last_termination_reason") != "" && evidenceValue(finding, "waiting_reason") == "" &&
+			evidenceValue(finding, "termination_reason") == "" && evidenceValue(finding, "exit_code") == "" ||
+			strings.Contains(finding.Symptom, "has restarted repeatedly")
+	default:
+		return false
 	}
-	return finding.RuleID == "pod-containers" &&
-		(evidenceValue(finding, "last_termination_reason") != "" && evidenceValue(finding, "waiting_reason") == "" && evidenceValue(finding, "termination_reason") == "" ||
-			strings.Contains(finding.Symptom, "has restarted repeatedly"))
 }
 
 func conditionKey(finding model.Finding) string {
@@ -344,8 +357,10 @@ func conditionKey(finding model.Finding) string {
 		}
 	case "configuration-references":
 		add("reference_kind", "reference_name", "reference_key")
-	case "container-resources", "current-pod-usage", "rollout-probes":
+	case "container-resources", "current-pod-usage":
 		add("container_role", "container", "probe_kind")
+	case "rollout-probes":
+		add("container_role", "container", "probe")
 	case "recent-warning-events":
 		add("event_reason")
 	case "service.ports":
