@@ -1,0 +1,40 @@
+# Example for an existing payments namespace. Bind these roles to your own identity.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubedoctor-reader
+  namespace: payments
+rules:
+  - apiGroups: [""]
+    resources: [pods, events, configmaps, persistentvolumeclaims, services, endpoints]
+    verbs: [list]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, replicasets]
+    verbs: [list]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: [list]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubedoctor-payments-dependencies
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [payments]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get]
+  - nonResourceURLs: [/apis/discovery.k8s.io/v1]
+    verbs: [get]

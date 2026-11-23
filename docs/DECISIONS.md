@@ -15,3 +15,7 @@ The collector accepts a user-selected kubeconfig context and applies a GET-route
 ## 2026-11-23 — MCP client policy
 
 The stdio process binds Kubernetes credentials and context at startup. Callers get a namespace allowlist and a separate cluster-scan switch. The adapter uses the same engine and report. A fixed scan budget and output cap apply regardless of client behavior.
+
+## 2026-11-23 — Server-supplied warnings and request budgets
+
+Kubernetes Warning headers are API-controlled strings. The collector disables their default client-go logger and uses a discarded contextual request logger. A synthetic binary-level fixture sends a sentinel in the Warning header and checks the process streams. The per-response decoded data budget is 32 MiB. The collector uses up to four workers, up to three HTTP attempts per paged operation, 200 items per page, and up to 25 pages or 5,000 items per source. Namespace-scoped hosting-node and StorageClass lookups are capped at 64 distinct names each. The report marks any data or request budget gaps and preserves complete earlier pages.

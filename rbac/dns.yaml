@@ -1,0 +1,21 @@
+# Optional conventional DNS observations. Bind only if the identity may inspect kube-system.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubedoctor-dns-reader
+  namespace: kube-system
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [services, endpoints]
+    resourceNames: [kube-dns]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [coredns, kube-dns]
+    verbs: [get]
