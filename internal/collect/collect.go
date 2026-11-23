@@ -21,7 +21,8 @@ import (
 
 func (c *Collector) Collect(ctx context.Context, request model.ScanRequest) model.Snapshot {
 	scope := request.Scope
-	s := model.Snapshot{Scope: scope, CollectedAt: time.Now().UTC()}
+	started := time.Now().UTC()
+	s := model.Snapshot{Scope: scope, StartedAt: started, FinishedAt: started, CollectedAt: started}
 	if (scope.Kind != model.NamespaceScope && scope.Kind != model.ClusterScope) ||
 		(scope.Kind == model.NamespaceScope && !validNamespace(scope.Namespace)) ||
 		(scope.Kind == model.ClusterScope && scope.Namespace != "") {
@@ -34,10 +35,13 @@ func (c *Collector) Collect(ctx context.Context, request model.ScanRequest) mode
 	// Scope client-go request logs away from output, including optional
 	// high-verbosity fields such as raw HTTP bodies and pagination tokens.
 	ctx = klog.NewContext(ctx, klog.Logger{})
-	ctx = withAccess(ctx, scanAccess{namespace: ns, cluster: cluster})
+	ctx = withAccess(ctx, scanAccess{namespace: ns, cluster: cluster, provenance: request.IncludeProvenance})
+	timings := &sourceTimings{}
+	ctx = context.WithValue(ctx, sourceTimingKey{}, timings)
 	slicesAbsent := sync.OnceValue(func() bool {
-		absent, _ := apiResourceAbsent(ctx, c.discovery.RESTClient(),
-			"/apis/discovery.k8s.io/v1", "endpointslices")
+		absent, _ := timedRead(ctx, model.SourceEndpointSlices, "api-discovery", func() (bool, error) {
+			return apiResourceAbsent(ctx, c.discovery.RESTClient(), "/apis/discovery.k8s.io/v1", "endpointslices")
+		})
 		return absent
 	})
 
@@ -46,19 +50,34 @@ func (c *Collector) Collect(ctx context.Context, request model.ScanRequest) mode
 			if cluster {
 				return []model.SourceResult{observed(model.SourceNamespace, false, model.NotApplicable, "cluster inventory was selected")}
 			}
-			found, err := c.core.Namespaces().Get(requestContext(ctx), ns, metav1.GetOptions{})
+			found, err := timedRead(ctx, model.SourceNamespace, ns, func() (*core.Namespace, error) {
+				return c.core.Namespaces().Get(requestContext(ctx), ns, metav1.GetOptions{})
+			})
 			if err != nil {
-				return []model.SourceResult{collectionError(model.SourceNamespace, true, err)}
+				result := []model.SourceResult{collectionError(model.SourceNamespace, true, err)}
+				if request.IncludeProvenance {
+					result = append(result, namedObservation(model.SourceProvenance, false, ns, err))
+				}
+				return result
 			}
 			if found.Name != ns {
 				return []model.SourceResult{observed(model.SourceNamespace, true, model.Failed, "API returned an unexpected namespace")}
 			}
-			return []model.SourceResult{observed(model.SourceNamespace, true, model.Complete, "")}
+			result := []model.SourceResult{observed(model.SourceNamespace, true, model.Complete, "")}
+			if request.IncludeProvenance {
+				result = append(result, captureProvenance(&s, ns, model.NamespaceUIDProvenance, found))
+			}
+			return result
 		},
 		func() []model.SourceResult {
 			var result model.SourceResult
 			s.Pods, result = inventory(ctx, model.SourcePods, c.core.Pods(ns).List,
-				func(l *core.PodList) []core.Pod { return l.Items }, projectPod)
+				func(l *core.PodList) []core.Pod { return l.Items }, func(pod core.Pod) core.Pod {
+					if evidence := projectPodProbes(pod); len(evidence.Containers) > 0 {
+						s.Expansion.Probes = append(s.Expansion.Probes, evidence)
+					}
+					return projectPod(pod)
+				})
 			return []model.SourceResult{result}
 		},
 		func() []model.SourceResult {
@@ -133,8 +152,20 @@ func (c *Collector) Collect(ctx context.Context, request model.ScanRequest) mode
 		},
 		func() []model.SourceResult {
 			var result model.SourceResult
+			project := eventProjector(s.Pods)
 			s.Events, result = readPages(ctx, model.SourceEvents, true, metav1.ListOptions{}, c.core.Events(ns).List,
-				func(l *core.EventList) []core.Event { return l.Items }, eventProjector(s.Pods))
+				func(l *core.EventList) []core.Event { return l.Items }, func(raw core.Event) (model.Event, bool) {
+					event, keep := project(raw)
+					if keep {
+						if evidence := projectAdmissionEvent(event, raw); evidence != nil {
+							s.Expansion.AdmissionEvents = append(s.Expansion.AdmissionEvents, *evidence)
+						}
+						if evidence := projectProbeEvent(event, raw); evidence != nil {
+							s.Expansion.ProbeEvents = append(s.Expansion.ProbeEvents, *evidence)
+						}
+					}
+					return event, keep
+				})
 			return []model.SourceResult{result}
 		},
 		func() []model.SourceResult {
@@ -151,7 +182,15 @@ func (c *Collector) Collect(ctx context.Context, request model.ScanRequest) mode
 		},
 	)
 	s.Sources = append(s.Sources, dependencies...)
-	s.CollectedAt = time.Now().UTC()
+	optionalCtx, cancelOptional := optionalCollectionContext(ctx)
+	if cluster && request.IncludeProvenance {
+		s.Sources = append(s.Sources, c.collectClusterProvenance(optionalCtx, &s))
+	}
+	s.Sources = append(s.Sources, c.collectExpansion(optionalCtx, ns, &s)...)
+	cancelOptional()
+	s.SourceTimings = timings.observations()
+	s.FinishedAt = time.Now().UTC()
+	s.CollectedAt = s.FinishedAt
 	return s
 }
 
@@ -192,7 +231,9 @@ func (c *Collector) collectBackends(ctx context.Context, ns string, slicesAbsent
 }
 
 func (c *Collector) collectMetrics(ctx context.Context, ns string, s *model.Snapshot) []model.SourceResult {
-	absent, discoveryErr := apiResourceAbsent(ctx, c.metrics.RESTClient(), "/apis/metrics.k8s.io/v1beta1", "pods")
+	absent, discoveryErr := timedRead(ctx, model.SourceMetrics, "api-discovery", func() (bool, error) {
+		return apiResourceAbsent(ctx, c.metrics.RESTClient(), "/apis/metrics.k8s.io/v1beta1", "pods")
+	})
 	if absent {
 		return []model.SourceResult{observed(model.SourceMetrics, false, model.Unavailable, "the Pod Metrics API is not installed")}
 	}

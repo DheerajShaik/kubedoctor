@@ -7,6 +7,8 @@ import (
 	"time"
 
 	apps "k8s.io/client-go/kubernetes/typed/apps/v1"
+	autoscaling "k8s.io/client-go/kubernetes/typed/autoscaling/v2"
+	batch "k8s.io/client-go/kubernetes/typed/batch/v1"
 	core "k8s.io/client-go/kubernetes/typed/core/v1"
 	discovery "k8s.io/client-go/kubernetes/typed/discovery/v1"
 	networking "k8s.io/client-go/kubernetes/typed/networking/v1"
@@ -20,13 +22,15 @@ import (
 const maxRequestTime = 8 * time.Second
 
 type Collector struct {
-	core       *core.CoreV1Client
-	apps       *apps.AppsV1Client
-	discovery  *discovery.DiscoveryV1Client
-	networking *networking.NetworkingV1Client
-	policy     *policy.PolicyV1Client
-	storage    *storage.StorageV1Client
-	metrics    *metrics.MetricsV1beta1Client
+	core        *core.CoreV1Client
+	apps        *apps.AppsV1Client
+	autoscaling *autoscaling.AutoscalingV2Client
+	batch       *batch.BatchV1Client
+	discovery   *discovery.DiscoveryV1Client
+	networking  *networking.NetworkingV1Client
+	policy      *policy.PolicyV1Client
+	storage     *storage.StorageV1Client
+	metrics     *metrics.MetricsV1beta1Client
 }
 
 func New(input *rest.Config) (*Collector, error) {
@@ -72,6 +76,12 @@ func New(input *rest.Config) (*Collector, error) {
 	}
 	if c.apps, err = apps.NewForConfigAndClient(config, client); err != nil {
 		return nil, errors.New("could not configure the apps Kubernetes client")
+	}
+	if c.autoscaling, err = autoscaling.NewForConfigAndClient(config, client); err != nil {
+		return nil, errors.New("could not configure the autoscaling Kubernetes client")
+	}
+	if c.batch, err = batch.NewForConfigAndClient(config, client); err != nil {
+		return nil, errors.New("could not configure the batch Kubernetes client")
 	}
 	if c.discovery, err = discovery.NewForConfigAndClient(config, client); err != nil {
 		return nil, errors.New("could not configure the discovery Kubernetes client")

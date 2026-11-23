@@ -21,6 +21,7 @@ func asIdentity(meta metav1.ObjectMeta) metav1.ObjectMeta {
 	for _, owner := range meta.OwnerReferences {
 		out.OwnerReferences = append(out.OwnerReferences, metav1.OwnerReference{
 			Kind: token(owner.Kind), Name: name(owner.Name), UID: types.UID(token(string(owner.UID))),
+			APIVersion: allowed(owner.APIVersion, "v1", "apps/v1", "batch/v1", "autoscaling/v2"),
 			Controller: owner.Controller,
 		})
 	}
@@ -279,6 +280,7 @@ func projectContainerStatuses(statuses []core.ContainerStatus) []core.ContainerS
 		out = append(out, core.ContainerStatus{
 			Name: name(status.Name), Ready: status.Ready, RestartCount: status.RestartCount, Started: status.Started,
 			State: projectContainerState(status.State), LastTerminationState: projectContainerState(status.LastTerminationState),
+			ContainerID: projectContainerID(status.ContainerID),
 		})
 	}
 	return out

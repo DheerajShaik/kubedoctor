@@ -28,21 +28,47 @@ func New(collector Collector) *Engine {
 }
 
 func (e *Engine) Scan(ctx context.Context, request model.ScanRequest) model.Report {
+	return Analyze(e.capture(ctx, request))
+}
+
+// Capture retains evidence for offline analysis and requests optional
+// provenance unavailable to legacy scans.
+func (e *Engine) Capture(ctx context.Context, request model.ScanRequest) model.Snapshot {
+	request.IncludeProvenance = true
+	return e.capture(ctx, request)
+}
+
+func (e *Engine) capture(ctx context.Context, request model.ScanRequest) model.Snapshot {
 	snapshot := e.collector.Collect(ctx, request)
-	findings, checks := analyze.Run(snapshot)
-	report := newReport(request.Scope, snapshot.CollectedAt)
-	report.Findings = append(report.Findings, findings...)
-	report.Checks = append(report.Checks, checks...)
-	for _, observation := range snapshot.Sources {
-		addSource(&report, observation)
+	snapshot.Scope = request.Scope
+	if snapshot.CollectedAt.IsZero() {
+		snapshot.CollectedAt = time.Now().UTC()
+	}
+	if snapshot.StartedAt.IsZero() {
+		snapshot.StartedAt = snapshot.CollectedAt
+	}
+	if snapshot.FinishedAt.IsZero() {
+		snapshot.FinishedAt = snapshot.CollectedAt
 	}
 	if ctx.Err() != nil {
-		addSource(&report, model.SourceResult{
+		snapshot.Sources = append(slices.Clone(snapshot.Sources), model.SourceResult{
 			Source:   "scan",
 			Status:   model.Failed,
 			Required: true,
 			Detail:   "Scan timeout or cancellation interrupted collection.",
 		})
+	}
+	return snapshot
+}
+
+// Analyze deterministically evaluates a captured snapshot without any I/O.
+func Analyze(snapshot model.Snapshot) model.Report {
+	findings, checks := analyze.Run(snapshot)
+	report := newReport(snapshot.Scope, snapshot.CollectedAt)
+	report.Findings = append(report.Findings, findings...)
+	report.Checks = append(report.Checks, checks...)
+	for _, observation := range snapshot.Sources {
+		addSource(&report, observation)
 	}
 	sortReport(&report)
 	return report

@@ -61,6 +61,9 @@ func analyzeWorkloads(s model.Snapshot) ([]model.Finding, []model.CheckResult) {
 		findings = append(findings, check.findings...)
 		checks = append(checks, check.status)
 	}
+	expanded, expandedChecks := analyzeExpansion(s, index)
+	findings = append(findings, expanded...)
+	checks = append(checks, expandedChecks...)
 	eventFindings, eventCheck := analyzeWarningEvents(s, index, findings)
 	return append(findings, eventFindings...), append(checks, eventCheck)
 }

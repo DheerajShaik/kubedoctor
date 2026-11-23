@@ -26,7 +26,7 @@ func eventProjector(pods []core.Pod) func(core.Event) (model.Event, bool) {
 		}
 		ref := event.InvolvedObject
 		kind := allowed(ref.Kind, "Pod", "Node", "Deployment", "ReplicaSet", "DaemonSet",
-			"PersistentVolumeClaim", "Service", "Ingress", "PodDisruptionBudget", "NetworkPolicy")
+			"PersistentVolumeClaim", "Service", "Ingress", "PodDisruptionBudget", "NetworkPolicy", "StatefulSet", "Job", "CronJob", "HorizontalPodAutoscaler")
 		object := name(ref.Name)
 		if kind == "" || object == "" || (ref.UID != "" && token(string(ref.UID)) == "") {
 			return model.Event{}, false
@@ -36,8 +36,8 @@ func eventProjector(pods []core.Pod) func(core.Event) (model.Event, bool) {
 			namespace = name(event.Namespace)
 		}
 		id := model.Resource{Kind: kind, Name: object, Namespace: namespace, UID: token(string(ref.UID))}
-		when, count := eventTimestamp(event)
-		out := model.Event{Resource: id, Reason: reason, Time: when, Count: count}
+		when, count, timeBasis := eventTimestamp(event)
+		out := model.Event{Resource: id, Reason: reason, Time: when, Count: count, TimeBasis: timeBasis}
 		if kind != "Pod" || (reason != "Failed" && reason != "FailedMount") {
 			return out, true
 		}
@@ -54,26 +54,30 @@ func eventReason(event core.Event) string {
 	case core.EventTypeWarning:
 		return allowed(event.Reason, "FailedScheduling", "FailedMount", "FailedAttachVolume", "FailedBinding", "ProvisioningFailed",
 			"FailedCreate", "FailedDelete", "Failed", "BackOff", "Unhealthy", "Evicted", "NodeNotReady",
-			"FailedCreatePodSandBox", "FailedToRetrieveImagePullSecret", "FailedMapVolume")
+			"FailedCreatePodSandBox", "FailedToRetrieveImagePullSecret", "FailedMapVolume", "MissSchedule", "TooManyMissedTimes", "UnknownTimeZone")
 	case core.EventTypeNormal:
-		return allowed(event.Reason, "WaitForFirstConsumer", "WaitForPodScheduled")
+		return allowed(event.Reason, "WaitForFirstConsumer", "WaitForPodScheduled", "JobAlreadyActive")
 	default:
 		return ""
 	}
 }
 
-func eventTimestamp(event core.Event) (time.Time, int32) {
+func eventTimestamp(event core.Event) (time.Time, int32, string) {
 	if event.Series != nil && !event.Series.LastObservedTime.IsZero() {
-		return event.Series.LastObservedTime.Time, event.Series.Count
+		return event.Series.LastObservedTime.Time, event.Series.Count, "series_last_observed"
 	}
-	for _, timestamp := range []time.Time{
-		event.LastTimestamp.Time, event.EventTime.Time, event.FirstTimestamp.Time, event.CreationTimestamp.Time,
+	for _, timestamp := range []struct {
+		time  time.Time
+		basis string
+	}{
+		{event.LastTimestamp.Time, "last_reported"}, {event.EventTime.Time, "event_time"},
+		{event.FirstTimestamp.Time, "first_reported"}, {event.CreationTimestamp.Time, "event_object_created"},
 	} {
-		if !timestamp.IsZero() {
-			return timestamp, event.Count
+		if !timestamp.time.IsZero() {
+			return timestamp.time, event.Count, timestamp.basis
 		}
 	}
-	return time.Time{}, event.Count
+	return time.Time{}, event.Count, ""
 }
 
 func matchesEventPod(id model.Resource, when time.Time, pod core.Pod) bool {

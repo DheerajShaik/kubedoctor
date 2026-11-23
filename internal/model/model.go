@@ -30,7 +30,8 @@ type Scope struct {
 }
 
 type ScanRequest struct {
-	Scope Scope
+	Scope             Scope
+	IncludeProvenance bool
 }
 
 type Severity string
@@ -160,6 +161,7 @@ type Event struct {
 	Resource  Resource
 	Reason    string
 	Time      time.Time
+	TimeBasis string
 	Count     int32
 	Reference *ConfigIssue
 }
@@ -199,10 +201,15 @@ type ContainerUsage struct {
 }
 
 // Snapshot stays internal. The collector projects metadata and only fields
-// needed by rules. The report is the sole serialized diagnostic model.
+// needed by rules. Exported evidence is separately projected by the bundle package.
 type Snapshot struct {
 	Scope              Scope
 	CollectedAt        time.Time
+	StartedAt          time.Time
+	FinishedAt         time.Time
+	ClusterID          string
+	ClusterProvenance  string
+	SourceTimings      []SourceTiming
 	Sources            []SourceResult
 	Nodes              []core.Node
 	Pods               []core.Pod
@@ -225,6 +232,8 @@ type Snapshot struct {
 	NetworkPolicies    []networking.NetworkPolicy
 	PDBs               []policy.PodDisruptionBudget
 	Metrics            []PodUsage
+	Expansion          ExpansionEvidence
+	History            *HistoryCapture
 }
 
 // Coverage describes whether negative conclusions may rely on a source.
